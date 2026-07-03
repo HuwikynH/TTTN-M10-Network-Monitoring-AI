@@ -88,6 +88,8 @@ Docker Compose khởi động PostgreSQL và Backend. Frontend vẫn có thể c
 | GET/PUT/DELETE | `/api/v1/devices/{id}` | Chi tiết/cập nhật/xóa thiết bị |
 | GET/POST | `/api/v1/metrics` | Đọc/gửi metrics |
 | GET/POST | `/api/v1/alerts` | Đọc/tạo cảnh báo |
+| PATCH | `/api/v1/alerts/{id}` | Xác nhận/giải quyết cảnh báo |
+| GET | `/api/v1/dashboard/summary` | Thống kê tổng quan Dashboard |
 
 Chi tiết request/response nằm trong Swagger và [docs/API_CONTRACT.md](docs/API_CONTRACT.md).
 
