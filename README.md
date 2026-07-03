@@ -73,11 +73,14 @@ Sau khi đã cài dependencies Backend:
 ## Chạy bằng Docker
 
 ```powershell
-Copy-Item .env.example .env
 docker compose up --build
 ```
 
 Docker Compose khởi động PostgreSQL và Backend. Frontend vẫn có thể chạy riêng bằng `npm run dev` trong giai đoạn phát triển.
+
+Mỗi thành phần có file cấu hình mẫu riêng: `backend/.env.example`,
+`frontend/.env.example` và `collector/.env.example`. Chỉ sao chép thành `.env`
+khi cần đổi cấu hình mặc định; không commit file `.env` thật lên GitHub.
 
 ## API Sprint 1
 
