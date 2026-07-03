@@ -62,6 +62,14 @@ npm run dev
 
 Frontend mặc định chạy tại http://localhost:5173.
 
+## Chạy kiểm thử
+
+Sau khi đã cài dependencies Backend:
+
+```powershell
+.\backend\.venv\Scripts\python.exe -m pytest -q
+```
+
 ## Chạy bằng Docker
 
 ```powershell
