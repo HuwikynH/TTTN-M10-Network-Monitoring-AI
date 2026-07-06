@@ -73,11 +73,14 @@ Sau khi đã cài dependencies Backend:
 ## Chạy bằng Docker
 
 ```powershell
-Copy-Item .env.example .env
 docker compose up --build
 ```
 
 Docker Compose khởi động PostgreSQL và Backend. Frontend vẫn có thể chạy riêng bằng `npm run dev` trong giai đoạn phát triển.
+
+Mỗi thành phần có file cấu hình mẫu riêng: `backend/.env.example`,
+`frontend/.env.example` và `collector/.env.example`. Chỉ sao chép thành `.env`
+khi cần đổi cấu hình mặc định; không commit file `.env` thật lên GitHub.
 
 ## API Sprint 1
 
@@ -88,6 +91,8 @@ Docker Compose khởi động PostgreSQL và Backend. Frontend vẫn có thể c
 | GET/PUT/DELETE | `/api/v1/devices/{id}` | Chi tiết/cập nhật/xóa thiết bị |
 | GET/POST | `/api/v1/metrics` | Đọc/gửi metrics |
 | GET/POST | `/api/v1/alerts` | Đọc/tạo cảnh báo |
+| PATCH | `/api/v1/alerts/{id}` | Xác nhận/giải quyết cảnh báo |
+| GET | `/api/v1/dashboard/summary` | Thống kê tổng quan Dashboard |
 
 Chi tiết request/response nằm trong Swagger và [docs/API_CONTRACT.md](docs/API_CONTRACT.md).
 
