@@ -137,6 +137,30 @@ def test_metric_requires_value_and_known_device(client: TestClient) -> None:
     )
     assert unknown.status_code == 404
 
+    missing_identity = client.post("/api/v1/metrics", json={"latency_ms": 10})
+    assert missing_identity.status_code == 422
+
+    duplicate_identity = client.post(
+        "/api/v1/metrics",
+        json={"device_id": 1, "ip_address": "192.0.2.10", "latency_ms": 10},
+    )
+    assert duplicate_identity.status_code == 422
+
+
+def test_metric_can_target_device_by_ip_address(client: TestClient) -> None:
+    device = create_device(client, ip_address="192.0.2.20")
+
+    metric_response = client.post(
+        "/api/v1/metrics",
+        json={"ip_address": "192.0.2.20", "latency_ms": 15, "packet_loss_percent": 0},
+    )
+    assert metric_response.status_code == 201
+    metric = metric_response.json()
+    assert metric["device_id"] == device["id"]
+
+    device_after_metric = client.get(f"/api/v1/devices/{device['id']}").json()
+    assert device_after_metric["status"] == "online"
+
 
 def test_metric_and_alert_delete(client: TestClient) -> None:
     device = create_device(client)

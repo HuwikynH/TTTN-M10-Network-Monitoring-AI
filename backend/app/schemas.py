@@ -56,15 +56,31 @@ class DeviceRead(ORMModel):
 
 
 class MetricCreate(BaseModel):
-    device_id: int
+    device_id: int | None = Field(default=None, ge=1)
+    ip_address: str | None = Field(default=None, min_length=3, max_length=45)
     latency_ms: float | None = Field(default=None, ge=0)
     packet_loss_percent: float | None = Field(default=None, ge=0, le=100)
     cpu_percent: float | None = Field(default=None, ge=0, le=100)
     memory_percent: float | None = Field(default=None, ge=0, le=100)
     bandwidth_mbps: float | None = Field(default=None, ge=0)
 
+    @field_validator("ip_address")
+    @classmethod
+    def validate_metric_ip_address(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        try:
+            return str(ip_address(value))
+        except ValueError as exc:
+            raise ValueError("Invalid IPv4 or IPv6 address") from exc
+
     @model_validator(mode="after")
     def require_at_least_one_measurement(self) -> "MetricCreate":
+        if self.device_id is None and self.ip_address is None:
+            raise ValueError("Either device_id or ip_address is required")
+        if self.device_id is not None and self.ip_address is not None:
+            raise ValueError("Provide only one of device_id or ip_address")
+
         measurements = (
             self.latency_ms,
             self.packet_loss_percent,

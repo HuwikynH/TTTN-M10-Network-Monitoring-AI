@@ -52,6 +52,18 @@ def get_device_or_404(device_id: int, db: Session) -> models.Device:
     return device
 
 
+def resolve_metric_device(payload: schemas.MetricCreate, db: Session) -> models.Device:
+    if payload.device_id is not None:
+        return get_device_or_404(payload.device_id, db)
+
+    assert payload.ip_address is not None
+    query = select(models.Device).where(models.Device.ip_address == payload.ip_address)
+    device = db.scalar(query)
+    if device is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return device
+
+
 @router.get("/devices/{device_id}", response_model=schemas.DeviceRead, tags=["Devices"])
 def get_device(device_id: int, db: Session = Depends(get_db)) -> models.Device:
     return get_device_or_404(device_id, db)
@@ -130,8 +142,15 @@ def get_metric(metric_id: int, db: Session = Depends(get_db)) -> models.Metric:
     "/metrics", response_model=schemas.MetricRead, status_code=status.HTTP_201_CREATED, tags=["Metrics"]
 )
 def create_metric(payload: schemas.MetricCreate, db: Session = Depends(get_db)) -> models.Metric:
-    device = get_device_or_404(payload.device_id, db)
-    metric = models.Metric(**payload.model_dump())
+    device = resolve_metric_device(payload, db)
+    metric = models.Metric(
+        device_id=device.id,
+        latency_ms=payload.latency_ms,
+        packet_loss_percent=payload.packet_loss_percent,
+        cpu_percent=payload.cpu_percent,
+        memory_percent=payload.memory_percent,
+        bandwidth_mbps=payload.bandwidth_mbps,
+    )
     if payload.packet_loss_percent is not None:
         device.status = "offline" if payload.packet_loss_percent == 100 else "online"
     db.add(metric)
