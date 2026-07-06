@@ -1,11 +1,14 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import router
 from app.config import settings
 from app.database import Base, engine
+from app.database import get_db
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 
 @asynccontextmanager
@@ -38,3 +41,9 @@ def root() -> dict[str, str]:
 @app.get("/health", tags=["System"])
 def health() -> dict[str, str]:
     return {"status": "healthy", "environment": settings.app_env}
+
+
+@app.get("/ready", tags=["System"])
+def readiness(db: Session = Depends(get_db)) -> dict[str, str]:
+    db.execute(text("SELECT 1"))
+    return {"status": "ready", "database": "connected"}

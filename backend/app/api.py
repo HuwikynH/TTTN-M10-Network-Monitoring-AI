@@ -1,17 +1,33 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.database import get_db
+from app.services import build_metric_alerts
 
 router = APIRouter(prefix="/api/v1")
 
 
 @router.get("/devices", response_model=list[schemas.DeviceRead], tags=["Devices"])
-def list_devices(db: Session = Depends(get_db)) -> list[models.Device]:
-    return list(db.scalars(select(models.Device).order_by(models.Device.id)))
+def list_devices(
+    status_value: schemas.DeviceStatus | None = Query(default=None, alias="status"),
+    search: str | None = Query(default=None, min_length=1, max_length=100),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+) -> list[models.Device]:
+    query = select(models.Device)
+    if status_value is not None:
+        query = query.where(models.Device.status == status_value)
+    if search is not None:
+        pattern = f"%{search.strip()}%"
+        query = query.where(
+            models.Device.name.ilike(pattern) | models.Device.ip_address.ilike(pattern)
+        )
+    query = query.order_by(models.Device.id).offset(skip).limit(limit)
+    return list(db.scalars(query))
 
 
 @router.post(
@@ -31,6 +47,18 @@ def create_device(payload: schemas.DeviceCreate, db: Session = Depends(get_db)) 
 
 def get_device_or_404(device_id: int, db: Session) -> models.Device:
     device = db.get(models.Device, device_id)
+    if device is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return device
+
+
+def resolve_metric_device(payload: schemas.MetricCreate, db: Session) -> models.Device:
+    if payload.device_id is not None:
+        return get_device_or_404(payload.device_id, db)
+
+    assert payload.ip_address is not None
+    query = select(models.Device).where(models.Device.ip_address == payload.ip_address)
+    device = db.scalar(query)
     if device is None:
         raise HTTPException(status_code=404, detail="Device not found")
     return device
@@ -64,39 +92,87 @@ def delete_device(device_id: int, db: Session = Depends(get_db)) -> None:
     db.commit()
 
 
+@router.get(
+    "/devices/{device_id}/metrics", response_model=list[schemas.MetricRead], tags=["Devices", "Metrics"]
+)
+def list_device_metrics(
+    device_id: int,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+) -> list[models.Metric]:
+    get_device_or_404(device_id, db)
+    query = (
+        select(models.Metric)
+        .where(models.Metric.device_id == device_id)
+        .order_by(models.Metric.collected_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    return list(db.scalars(query))
+
+
 @router.get("/metrics", response_model=list[schemas.MetricRead], tags=["Metrics"])
 def list_metrics(
     device_id: int | None = None,
+    skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=1000),
     db: Session = Depends(get_db),
 ) -> list[models.Metric]:
     query = select(models.Metric)
     if device_id is not None:
         query = query.where(models.Metric.device_id == device_id)
-    query = query.order_by(models.Metric.collected_at.desc()).limit(limit)
+    query = query.order_by(models.Metric.collected_at.desc()).offset(skip).limit(limit)
     return list(db.scalars(query))
+
+
+def get_metric_or_404(metric_id: int, db: Session) -> models.Metric:
+    metric = db.get(models.Metric, metric_id)
+    if metric is None:
+        raise HTTPException(status_code=404, detail="Metric not found")
+    return metric
+
+
+@router.get("/metrics/{metric_id}", response_model=schemas.MetricRead, tags=["Metrics"])
+def get_metric(metric_id: int, db: Session = Depends(get_db)) -> models.Metric:
+    return get_metric_or_404(metric_id, db)
 
 
 @router.post(
     "/metrics", response_model=schemas.MetricRead, status_code=status.HTTP_201_CREATED, tags=["Metrics"]
 )
 def create_metric(payload: schemas.MetricCreate, db: Session = Depends(get_db)) -> models.Metric:
-    device = get_device_or_404(payload.device_id, db)
-    metric = models.Metric(**payload.model_dump())
-    if payload.packet_loss_percent == 100:
-        device.status = "offline"
-    else:
-        device.status = "online"
+    device = resolve_metric_device(payload, db)
+    metric = models.Metric(
+        device_id=device.id,
+        latency_ms=payload.latency_ms,
+        packet_loss_percent=payload.packet_loss_percent,
+        cpu_percent=payload.cpu_percent,
+        memory_percent=payload.memory_percent,
+        bandwidth_mbps=payload.bandwidth_mbps,
+    )
+    if payload.packet_loss_percent is not None:
+        device.status = "offline" if payload.packet_loss_percent == 100 else "online"
     db.add(metric)
+    db.add_all(build_metric_alerts(payload))
     db.commit()
     db.refresh(metric)
     return metric
 
 
+@router.delete("/metrics/{metric_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Metrics"])
+def delete_metric(metric_id: int, db: Session = Depends(get_db)) -> None:
+    metric = get_metric_or_404(metric_id, db)
+    db.delete(metric)
+    db.commit()
+
+
 @router.get("/alerts", response_model=list[schemas.AlertRead], tags=["Alerts"])
 def list_alerts(
     device_id: int | None = None,
-    status_value: str | None = Query(default=None, alias="status"),
+    status_value: schemas.AlertStatus | None = Query(default=None, alias="status"),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=1000),
     db: Session = Depends(get_db),
 ) -> list[models.Alert]:
     query = select(models.Alert)
@@ -104,7 +180,20 @@ def list_alerts(
         query = query.where(models.Alert.device_id == device_id)
     if status_value is not None:
         query = query.where(models.Alert.status == status_value)
-    return list(db.scalars(query.order_by(models.Alert.created_at.desc())))
+    query = query.order_by(models.Alert.created_at.desc()).offset(skip).limit(limit)
+    return list(db.scalars(query))
+
+
+def get_alert_or_404(alert_id: int, db: Session) -> models.Alert:
+    alert = db.get(models.Alert, alert_id)
+    if alert is None:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return alert
+
+
+@router.get("/alerts/{alert_id}", response_model=schemas.AlertRead, tags=["Alerts"])
+def get_alert(alert_id: int, db: Session = Depends(get_db)) -> models.Alert:
+    return get_alert_or_404(alert_id, db)
 
 
 @router.post(
@@ -117,3 +206,49 @@ def create_alert(payload: schemas.AlertCreate, db: Session = Depends(get_db)) ->
     db.commit()
     db.refresh(alert)
     return alert
+
+
+@router.patch("/alerts/{alert_id}", response_model=schemas.AlertRead, tags=["Alerts"])
+def update_alert(
+    alert_id: int, payload: schemas.AlertUpdate, db: Session = Depends(get_db)
+) -> models.Alert:
+    alert = get_alert_or_404(alert_id, db)
+    alert.status = payload.status
+    db.commit()
+    db.refresh(alert)
+    return alert
+
+
+@router.delete("/alerts/{alert_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Alerts"])
+def delete_alert(alert_id: int, db: Session = Depends(get_db)) -> None:
+    alert = get_alert_or_404(alert_id, db)
+    db.delete(alert)
+    db.commit()
+
+
+@router.get("/dashboard/summary", response_model=schemas.DashboardSummary, tags=["Dashboard"])
+def dashboard_summary(db: Session = Depends(get_db)) -> schemas.DashboardSummary:
+    def device_count(status_value: str | None = None) -> int:
+        query = select(func.count(models.Device.id))
+        if status_value is not None:
+            query = query.where(models.Device.status == status_value)
+        return int(db.scalar(query) or 0)
+
+    open_alerts = db.scalar(
+        select(func.count(models.Alert.id)).where(models.Alert.status == "open")
+    )
+    critical_alerts = db.scalar(
+        select(func.count(models.Alert.id)).where(
+            models.Alert.status == "open", models.Alert.level == "critical"
+        )
+    )
+    return schemas.DashboardSummary(
+        total_devices=device_count(),
+        online_devices=device_count("online"),
+        offline_devices=device_count("offline"),
+        unknown_devices=device_count("unknown"),
+        total_metrics=int(db.scalar(select(func.count(models.Metric.id))) or 0),
+        open_alerts=int(open_alerts or 0),
+        critical_alerts=int(critical_alerts or 0),
+        last_metric_at=db.scalar(select(func.max(models.Metric.collected_at))),
+    )
