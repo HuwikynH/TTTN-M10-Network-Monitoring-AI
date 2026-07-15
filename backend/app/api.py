@@ -40,24 +40,8 @@ def mark_stale_devices_offline(db: Session) -> None:
 
 
 @router.get("/devices", response_model=list[schemas.DeviceRead], tags=["Devices"])
-def list_devices(
-    status_value: schemas.DeviceStatus | None = Query(default=None, alias="status"),
-    search: str | None = Query(default=None, min_length=1, max_length=100),
-    skip: int = Query(default=0, ge=0),
-    limit: int = Query(default=100, ge=1, le=1000),
-    db: Session = Depends(get_db),
-) -> list[models.Device]:
-    mark_stale_devices_offline(db)
-    query = select(models.Device)
-    if status_value is not None:
-        query = query.where(models.Device.status == status_value)
-    if search is not None:
-        pattern = f"%{search.strip()}%"
-        query = query.where(
-            models.Device.name.ilike(pattern) | models.Device.ip_address.ilike(pattern)
-        )
-    query = query.order_by(models.Device.id).offset(skip).limit(limit)
-    return list(db.scalars(query))
+def list_devices(db: Session = Depends(get_db)) -> list[models.Device]:
+    return list(db.scalars(select(models.Device).order_by(models.Device.id)))
 
 
 @router.post(
@@ -173,20 +157,13 @@ def get_metric(metric_id: int, db: Session = Depends(get_db)) -> models.Metric:
     "/metrics", response_model=schemas.MetricRead, status_code=status.HTTP_201_CREATED, tags=["Metrics"]
 )
 def create_metric(payload: schemas.MetricCreate, db: Session = Depends(get_db)) -> models.Metric:
-    device = resolve_metric_device(payload, db)
-    alert_payload = payload.model_copy(update={"device_id": device.id, "ip_address": None})
-    metric = models.Metric(
-        device_id=device.id,
-        latency_ms=payload.latency_ms,
-        packet_loss_percent=payload.packet_loss_percent,
-        cpu_percent=payload.cpu_percent,
-        memory_percent=payload.memory_percent,
-        bandwidth_mbps=payload.bandwidth_mbps,
-    )
-    if payload.packet_loss_percent is not None:
-        device.status = "offline" if payload.packet_loss_percent == 100 else "online"
+    device = get_device_or_404(payload.device_id, db)
+    metric = models.Metric(**payload.model_dump())
+    if payload.packet_loss_percent == 100:
+        device.status = "offline"
+    else:
+        device.status = "online"
     db.add(metric)
-    db.add_all(build_metric_alerts(alert_payload))
     db.commit()
     db.refresh(metric)
     return metric
@@ -238,51 +215,3 @@ def create_alert(payload: schemas.AlertCreate, db: Session = Depends(get_db)) ->
     db.commit()
     db.refresh(alert)
     return alert
-
-
-@router.patch("/alerts/{alert_id}", response_model=schemas.AlertRead, tags=["Alerts"])
-def update_alert(
-    alert_id: int, payload: schemas.AlertUpdate, db: Session = Depends(get_db)
-) -> models.Alert:
-    alert = get_alert_or_404(alert_id, db)
-    alert.status = payload.status
-    db.commit()
-    db.refresh(alert)
-    return alert
-
-
-@router.delete("/alerts/{alert_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Alerts"])
-def delete_alert(alert_id: int, db: Session = Depends(get_db)) -> None:
-    alert = get_alert_or_404(alert_id, db)
-    db.delete(alert)
-    db.commit()
-
-
-@router.get("/dashboard/summary", response_model=schemas.DashboardSummary, tags=["Dashboard"])
-def dashboard_summary(db: Session = Depends(get_db)) -> schemas.DashboardSummary:
-    mark_stale_devices_offline(db)
-
-    def device_count(status_value: str | None = None) -> int:
-        query = select(func.count(models.Device.id))
-        if status_value is not None:
-            query = query.where(models.Device.status == status_value)
-        return int(db.scalar(query) or 0)
-
-    open_alerts = db.scalar(
-        select(func.count(models.Alert.id)).where(models.Alert.status == "open")
-    )
-    critical_alerts = db.scalar(
-        select(func.count(models.Alert.id)).where(
-            models.Alert.status == "open", models.Alert.level == "critical"
-        )
-    )
-    return schemas.DashboardSummary(
-        total_devices=device_count(),
-        online_devices=device_count("online"),
-        offline_devices=device_count("offline"),
-        unknown_devices=device_count("unknown"),
-        total_metrics=int(db.scalar(select(func.count(models.Metric.id))) or 0),
-        open_alerts=int(open_alerts or 0),
-        critical_alerts=int(critical_alerts or 0),
-        last_metric_at=db.scalar(select(func.max(models.Metric.collected_at))),
-    )
