@@ -16,6 +16,7 @@ class Settings:
     packet_loss_warning_percent: float = float(os.getenv("PACKET_LOSS_WARNING_PERCENT", "20"))
     cpu_warning_percent: float = float(os.getenv("CPU_WARNING_PERCENT", "90"))
     memory_warning_percent: float = float(os.getenv("MEMORY_WARNING_PERCENT", "90"))
+    device_stale_seconds: int = int(os.getenv("DEVICE_STALE_SECONDS", "45"))
 
 
 settings = Settings()
