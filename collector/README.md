@@ -1,20 +1,6 @@
 # Collector
 
-Thu muc nay chua cac collector gui metric ve backend `POST /api/v1/metrics`.
-
-## collector.py
-
-Collector Sprint 1 toi gian, chi do ping latency va packet loss cho mot thiet bi.
-
-```powershell
-cd C:\Users\huuhu\Desktop\TTTN-M10-Network-Monitoring-AI\collector
-python -m pip install -r requirements.txt
-$env:DEVICE_ID="1"
-$env:TARGET_HOST="8.8.8.8"
-python collector.py
-```
-
-## collectorH.py
+Thu muc nay chua collector gui metric ve backend `POST /api/v1/metrics`.
 
 Collector dung cho lab EVE hien tai. Script thu thap ping, SNMP CPU/RAM/traffic tu DIST, CORE, ASAv, DMZ-SERVER, SW; ghi vao `network_dataset.json`; dong thoi POST metric ve backend.
 
