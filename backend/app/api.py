@@ -1,13 +1,42 @@
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import models, schemas
+from app.config import settings
 from app.database import get_db
 from app.services import build_metric_alerts
 
 router = APIRouter(prefix="/api/v1")
+
+
+def mark_stale_devices_offline(db: Session) -> None:
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=settings.device_stale_seconds)
+    latest_metric_subquery = (
+        select(
+            models.Metric.device_id,
+            func.max(models.Metric.collected_at).label("last_metric_at"),
+        )
+        .group_by(models.Metric.device_id)
+        .subquery()
+    )
+    query = (
+        select(models.Device)
+        .join(latest_metric_subquery, latest_metric_subquery.c.device_id == models.Device.id)
+        .where(
+            models.Device.status == "online",
+            latest_metric_subquery.c.last_metric_at < cutoff,
+        )
+    )
+    stale_devices = list(db.scalars(query))
+    if not stale_devices:
+        return
+    for device in stale_devices:
+        device.status = "offline"
+    db.commit()
 
 
 @router.get("/devices", response_model=list[schemas.DeviceRead], tags=["Devices"])
@@ -18,6 +47,7 @@ def list_devices(
     limit: int = Query(default=100, ge=1, le=1000),
     db: Session = Depends(get_db),
 ) -> list[models.Device]:
+    mark_stale_devices_offline(db)
     query = select(models.Device)
     if status_value is not None:
         query = query.where(models.Device.status == status_value)
@@ -66,6 +96,7 @@ def resolve_metric_device(payload: schemas.MetricCreate, db: Session) -> models.
 
 @router.get("/devices/{device_id}", response_model=schemas.DeviceRead, tags=["Devices"])
 def get_device(device_id: int, db: Session = Depends(get_db)) -> models.Device:
+    mark_stale_devices_offline(db)
     return get_device_or_404(device_id, db)
 
 
@@ -143,6 +174,7 @@ def get_metric(metric_id: int, db: Session = Depends(get_db)) -> models.Metric:
 )
 def create_metric(payload: schemas.MetricCreate, db: Session = Depends(get_db)) -> models.Metric:
     device = resolve_metric_device(payload, db)
+    alert_payload = payload.model_copy(update={"device_id": device.id, "ip_address": None})
     metric = models.Metric(
         device_id=device.id,
         latency_ms=payload.latency_ms,
@@ -154,7 +186,7 @@ def create_metric(payload: schemas.MetricCreate, db: Session = Depends(get_db)) 
     if payload.packet_loss_percent is not None:
         device.status = "offline" if payload.packet_loss_percent == 100 else "online"
     db.add(metric)
-    db.add_all(build_metric_alerts(payload))
+    db.add_all(build_metric_alerts(alert_payload))
     db.commit()
     db.refresh(metric)
     return metric
@@ -228,6 +260,8 @@ def delete_alert(alert_id: int, db: Session = Depends(get_db)) -> None:
 
 @router.get("/dashboard/summary", response_model=schemas.DashboardSummary, tags=["Dashboard"])
 def dashboard_summary(db: Session = Depends(get_db)) -> schemas.DashboardSummary:
+    mark_stale_devices_offline(db)
+
     def device_count(status_value: str | None = None) -> int:
         query = select(func.count(models.Device.id))
         if status_value is not None:
