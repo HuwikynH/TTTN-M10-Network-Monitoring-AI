@@ -1,62 +1,52 @@
-import { NavLink, Outlet } from "react-router-dom";
-import { ThemeToggle } from "./Theme";
+import { useEffect, useState } from "react";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { useTheme } from "../context/ThemeContext";
 
-const NAV_ITEMS = [
-  { to: "/", label: "Tổng quan", end: true, icon: "dashboard" },
-  { to: "/devices", label: "Thiết bị", icon: "devices" },
-  { to: "/alerts", label: "Cảnh báo", icon: "alerts" },
+const navigation = [
+  { to: "/", label: "Tổng quan", end: true, icon: "grid" },
+  { to: "/traffic", label: "Giám sát trực tiếp", icon: "pulse" },
+  { to: "/devices", label: "Thiết bị", icon: "server" },
+  { to: "/alerts", label: "Cảnh báo", icon: "bell" },
 ];
 
-function NavIcon({ name }) {
-  if (name === "dashboard") {
-    return <svg viewBox="0 0 24 24"><path d="M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-16v4h6V4h-6Z" /></svg>;
-  }
-
-  if (name === "devices") {
-    return <svg viewBox="0 0 24 24"><path d="M5 5h14v10H5V5Zm-2 0v10a2 2 0 0 0 2 2h5v2H7v2h10v-2h-3v-2h5a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2Z" /></svg>;
-  }
-
-  return <svg viewBox="0 0 24 24"><path d="M12 3a2 2 0 0 0-2 2v.35A7 7 0 0 0 5 12v4l-2 2v1h18v-1l-2-2v-4a7 7 0 0 0-5-6.65V5a2 2 0 0 0-2-2Zm0 19a3 3 0 0 0 2.83-2h-5.66A3 3 0 0 0 12 22Z" /></svg>;
+function Icon({ name }) {
+  const paths = {
+    grid: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>,
+    pulse: <path d="M3 12h4l2.2-6 4.2 12 2.2-6H21" />,
+    server: <><rect x="3" y="4" width="18" height="6" rx="2" /><rect x="3" y="14" width="18" height="6" rx="2" /><path d="M7 7h.01M7 17h.01" /></>,
+    bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></>,
+  };
+  return <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 }
 
 export default function Layout() {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const { theme, toggleTheme } = useTheme();
+  const location = useLocation();
+  useEffect(() => setMenuOpen(false), [location.pathname]);
+  useEffect(() => {
+    document.body.classList.toggle("menu-open", menuOpen);
+    return () => document.body.classList.remove("menu-open");
+  }, [menuOpen]);
+
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark">NM</div>
-          <div>
-            <strong>Network Monitoring AI</strong>
-            <small>TTTN M10</small>
-          </div>
-        </div>
-
+      <aside className={"sidebar" + (menuOpen ? " sidebar--open" : "")}>
+        <div className="brand"><div className="brand-mark" aria-hidden="true">NM</div><div><strong>Network Monitoring AI</strong><small>TTTN M10</small></div></div>
         <nav className="main-nav" aria-label="Điều hướng chính">
-          {NAV_ITEMS.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) => (isActive ? "nav-link nav-link--active" : "nav-link")}
-            >
-              <span className="nav-link__icon" aria-hidden="true"><NavIcon name={item.icon} /></span>
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
+          {navigation.map((item) => <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => isActive ? "nav-link nav-link--active" : "nav-link"}><Icon name={item.icon} /><span>{item.label}</span></NavLink>)}
         </nav>
-
-        <div className="sidebar-actions">
-          <ThemeToggle />
-          <div className="sidebar-footer">
-            <span className="pulse-dot" aria-hidden="true" />
-            Giám sát thời gian thực
-          </div>
-        </div>
+        <div className="sidebar-footer"><span className="system-label">Network Operations Center</span><span className="system-version">Frontend • REST API</span></div>
       </aside>
-
-      <main className="main-content">
-        <Outlet />
-      </main>
+      {menuOpen && <button className="sidebar-backdrop" type="button" aria-label="Đóng menu" onClick={() => setMenuOpen(false)} />}
+      <div className="app-content">
+        <header className="topbar">
+          <button className="icon-button mobile-menu-button" type="button" aria-label="Mở menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}><span /><span /><span /></button>
+          <div className="topbar-context"><span className="topbar-dot" />Hệ thống giám sát đang sẵn sàng</div>
+          <button className="theme-toggle" type="button" onClick={toggleTheme} aria-label={"Chuyển sang giao diện " + (theme === "dark" ? "sáng" : "tối")}><span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span><span>{theme === "dark" ? "Sáng" : "Tối"}</span></button>
+        </header>
+        <main className="main-content"><Outlet /></main>
+      </div>
     </div>
   );
 }

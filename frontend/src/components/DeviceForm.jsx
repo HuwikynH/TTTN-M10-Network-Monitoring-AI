@@ -1,149 +1,37 @@
-import { useEffect, useId, useState } from "react";
-import { ErrorMessage } from "./StateFeedback";
+import { useState } from "react";
+import StatusBadge from "./StatusBadge";
 
-const EMPTY_FORM = {
-  name: "",
-  ip_address: "",
-  location: "",
-  status: "unknown",
-};
-
-function validate(values) {
-  const errors = {};
-  const name = values.name.trim();
-  const ipAddress = values.ip_address.trim();
-
-  if (!name) errors.name = "Tên thiết bị là bắt buộc.";
-  else if (name.length > 100) errors.name = "Tên thiết bị không được vượt quá 100 ký tự.";
-
-  if (!ipAddress) errors.ip_address = "Địa chỉ IP là bắt buộc.";
-  else if (ipAddress.length < 3 || ipAddress.length > 45) {
-    errors.ip_address = "Địa chỉ IP phải có từ 3 đến 45 ký tự.";
-  }
-
-  if (values.location.trim().length > 150) {
-    errors.location = "Vị trí không được vượt quá 150 ký tự.";
-  }
-
-  return errors;
-}
-
-export default function DeviceForm({ device, busy, submitError, onSubmit, onCancel }) {
-  const formId = useId();
-  const [values, setValues] = useState(EMPTY_FORM);
+export default function DeviceForm({ device, onSubmit, onCancel }) {
+  const [values, setValues] = useState({ name: device?.name || "", ip_address: device?.ip_address || "", location: device?.location || "" });
   const [errors, setErrors] = useState({});
-
-  useEffect(() => {
-    setValues(
-      device
-        ? {
-            name: device.name || "",
-            ip_address: device.ip_address || "",
-            location: device.location || "",
-            status: device.status || "unknown",
-          }
-        : EMPTY_FORM,
-    );
-    setErrors({});
-  }, [device]);
-
-  const handleChange = (event) => {
+  const [submitError, setSubmitError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const change = (event) => {
     const { name, value } = event.target;
     setValues((current) => ({ ...current, [name]: value }));
     setErrors((current) => ({ ...current, [name]: "" }));
   };
-
-  const handleSubmit = (event) => {
+  const submit = async (event) => {
     event.preventDefault();
-    const nextErrors = validate(values);
-
-    if (Object.keys(nextErrors).length > 0) {
-      setErrors(nextErrors);
-      return;
-    }
-
-    onSubmit({
-      name: values.name.trim(),
-      ip_address: values.ip_address.trim(),
-      location: values.location.trim() || null,
-      status: values.status,
-    });
+    const payload = { name: values.name.trim(), ip_address: values.ip_address.trim(), location: values.location.trim() || null };
+    const nextErrors = {};
+    if (!payload.name) nextErrors.name = "Vui lòng nhập tên thiết bị.";
+    if (!payload.ip_address) nextErrors.ip_address = "Vui lòng nhập địa chỉ IPv4 hoặc IPv6.";
+    if (Object.keys(nextErrors).length) { setErrors(nextErrors); return; }
+    setSubmitting(true);
+    setSubmitError("");
+    try { await onSubmit(device ? payload : { ...payload, status: "unknown" }); }
+    catch (error) { setSubmitError(error.message); }
+    finally { setSubmitting(false); }
   };
-
   return (
-    <form onSubmit={handleSubmit} noValidate>
-      <ErrorMessage message={submitError} />
-
-      <div className="form-grid">
-        <div className="field">
-          <label htmlFor={`${formId}-name`}>Tên thiết bị <strong aria-hidden="true">*</strong></label>
-          <input
-            autoFocus
-            id={`${formId}-name`}
-            name="name"
-            value={values.name}
-            onChange={handleChange}
-            maxLength={100}
-            placeholder="Ví dụ: Core Router"
-            required
-            disabled={busy}
-            aria-invalid={Boolean(errors.name)}
-            aria-describedby={errors.name ? `${formId}-name-error` : undefined}
-          />
-          {errors.name && <small className="field__error" id={`${formId}-name-error`}>{errors.name}</small>}
-        </div>
-
-        <div className="field">
-          <label htmlFor={`${formId}-ip-address`}>Địa chỉ IP <strong aria-hidden="true">*</strong></label>
-          <input
-            id={`${formId}-ip-address`}
-            name="ip_address"
-            value={values.ip_address}
-            onChange={handleChange}
-            maxLength={45}
-            placeholder="Ví dụ: 192.168.1.1"
-            required
-            disabled={busy}
-            aria-invalid={Boolean(errors.ip_address)}
-            aria-describedby={errors.ip_address ? `${formId}-ip-error` : undefined}
-          />
-          {errors.ip_address && <small className="field__error" id={`${formId}-ip-error`}>{errors.ip_address}</small>}
-        </div>
-
-        <div className="field">
-          <label htmlFor={`${formId}-location`}>Vị trí</label>
-          <input
-            id={`${formId}-location`}
-            name="location"
-            value={values.location}
-            onChange={handleChange}
-            maxLength={150}
-            placeholder="Ví dụ: Phòng Lab"
-            disabled={busy}
-            aria-invalid={Boolean(errors.location)}
-            aria-describedby={errors.location ? `${formId}-location-error` : undefined}
-          />
-          {errors.location && <small className="field__error" id={`${formId}-location-error`}>{errors.location}</small>}
-        </div>
-
-        <div className="field">
-          <label htmlFor={`${formId}-status`}>Trạng thái</label>
-          <select id={`${formId}-status`} name="status" value={values.status} onChange={handleChange} disabled={busy}>
-            <option value="unknown">Chưa xác định</option>
-            <option value="online">Online</option>
-            <option value="offline">Offline</option>
-          </select>
-        </div>
-      </div>
-
-      <div className="form-actions">
-        <button className="button button--secondary" type="button" onClick={onCancel} disabled={busy}>
-          Hủy
-        </button>
-        <button className="button button--primary" type="submit" disabled={busy}>
-          {busy ? "Đang lưu..." : device ? "Lưu thay đổi" : "Thêm thiết bị"}
-        </button>
-      </div>
+    <form className="device-form" onSubmit={submit} noValidate>
+      {submitError && <div className="form-error" role="alert">{submitError}</div>}
+      <div className="field"><label htmlFor="device-name">Tên thiết bị <span aria-hidden="true">*</span></label><input id="device-name" name="name" value={values.name} onChange={change} maxLength="100" autoComplete="off" aria-invalid={Boolean(errors.name)} aria-describedby={errors.name ? "device-name-error" : undefined} />{errors.name && <span className="field-error" id="device-name-error">{errors.name}</span>}</div>
+      <div className="field"><label htmlFor="device-ip">Địa chỉ IP <span aria-hidden="true">*</span></label><input id="device-ip" name="ip_address" value={values.ip_address} onChange={change} maxLength="45" placeholder="192.168.1.1 hoặc 2001:db8::1" spellCheck="false" aria-invalid={Boolean(errors.ip_address)} aria-describedby={errors.ip_address ? "device-ip-error" : "device-ip-hint"} />{errors.ip_address ? <span className="field-error" id="device-ip-error">{errors.ip_address}</span> : <span className="field-hint" id="device-ip-hint">Backend xác thực đầy đủ địa chỉ IPv4 và IPv6.</span>}</div>
+      <div className="field"><label htmlFor="device-location">Vị trí</label><input id="device-location" name="location" value={values.location} onChange={change} maxLength="150" placeholder="Ví dụ: Phòng máy chủ" /></div>
+      {device ? <div className="field"><span className="field-label">Trạng thái do hệ thống xác định</span><StatusBadge status={device.status} /><span className="field-hint">Trạng thái được cập nhật tự động từ metric của Collector.</span></div> : <div className="form-note">Thiết bị mới bắt đầu ở trạng thái “Chưa xác định” cho đến khi nhận metric đầu tiên.</div>}
+      <div className="modal-actions"><button className="button button--secondary" type="button" onClick={onCancel} disabled={submitting}>Hủy</button><button className="button button--primary" type="submit" disabled={submitting}>{submitting ? "Đang lưu…" : device ? "Lưu thay đổi" : "Thêm thiết bị"}</button></div>
     </form>
   );
 }

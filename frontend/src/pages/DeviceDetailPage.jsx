@@ -1,167 +1,76 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { deviceApi, metricApi } from "../api/api";
-import Loading from "../components/Loading";
+import EmptyState from "../components/EmptyState";
+import ErrorBanner from "../components/ErrorBanner";
+import LiveConnectionBadge from "../components/LiveConnectionBadge";
+import LoadingState from "../components/LoadingState";
 import MetricChart from "../components/MetricChart";
 import PageHeader from "../components/PageHeader";
-import { EmptyState, ErrorMessage } from "../components/StateFeedback";
 import StatusBadge from "../components/StatusBadge";
-
-function formatDateTime(value) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("vi-VN", {
-    dateStyle: "medium",
-    timeStyle: "medium",
-  }).format(date);
-}
-
-function formatMetric(value, unit) {
-  if (value === null || value === undefined || !Number.isFinite(Number(value))) return "—";
-  return `${Number(value).toLocaleString("vi-VN", { maximumFractionDigits: 2 })} ${unit}`;
-}
+import useAutoRefresh, { getRefreshInterval } from "../hooks/useAutoRefresh";
+import { formatDateTime, formatMetric, isStale, newestMetric, sortMetricsAscending } from "../utils";
 
 export default function DeviceDetailPage() {
   const { deviceId } = useParams();
-  const numericDeviceId = Number(deviceId);
-  const validDeviceId = Number.isInteger(numericDeviceId) && numericDeviceId > 0;
+  const numericId = Number(deviceId);
   const [device, setDevice] = useState(null);
   const [metrics, setMetrics] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [notFound, setNotFound] = useState(false);
-  const mountedRef = useRef(false);
-  const controllerRef = useRef(null);
-
-  const loadDeviceData = useCallback(async () => {
-    if (!validDeviceId) {
-      if (mountedRef.current) {
-        setNotFound(true);
-        setLoading(false);
-      }
-      return;
-    }
-
-    const controller = new AbortController();
-    controllerRef.current = controller;
-    if (mountedRef.current) {
-      setLoading(true);
-      setError("");
-      setNotFound(false);
-    }
-
+  const [notFound, setNotFound] = useState(!Number.isInteger(numericId) || numericId < 1);
+  const intervalMs = getRefreshInterval();
+  const polling = useAutoRefresh(async (signal) => {
+    if (notFound) return;
     try {
-      const [deviceData, metricData] = await Promise.all([
-        deviceApi.getById(numericDeviceId, { signal: controller.signal }),
-        metricApi.list({ deviceId: numericDeviceId, limit: 1000, signal: controller.signal }),
-      ]);
-
-      if (!mountedRef.current) return;
+      const [deviceData, metricData] = await Promise.all([deviceApi.get(numericId, { signal }), metricApi.listByDevice({ deviceId: numericId, limit: 120, signal })]);
       setDevice(deviceData);
-      setMetrics(metricData || []);
-    } catch (requestError) {
-      if (requestError.name === "AbortError" || !mountedRef.current) return;
-      if (requestError.status === 404) setNotFound(true);
-      else setError(requestError.message);
-    } finally {
-      if (controllerRef.current === controller) controllerRef.current = null;
-      if (mountedRef.current) setLoading(false);
+      setMetrics(metricData);
+    } catch (error) {
+      if (error.status === 404) {
+        setDevice(null);
+        setMetrics([]);
+        setNotFound(true);
+        return;
+      }
+      throw error;
     }
-  }, [numericDeviceId, validDeviceId]);
+  }, { intervalMs, enabled: !notFound });
+  const chartData = useMemo(() => sortMetricsAscending(metrics).slice(-120), [metrics]);
+  const latest = useMemo(() => newestMetric(metrics), [metrics]);
+  const liveStatus = polling.paused ? "paused" : polling.error ? "disconnected" : polling.isRefreshing ? "refreshing" : isStale(latest?.collected_at, intervalMs) ? "stale" : "live";
 
-  useEffect(() => {
-    mountedRef.current = true;
-    loadDeviceData();
-    return () => {
-      mountedRef.current = false;
-      controllerRef.current?.abort();
-    };
-  }, [loadDeviceData]);
-
-  const latestMetric = useMemo(
-    () =>
-      [...metrics].sort(
-        (first, second) => new Date(second.collected_at) - new Date(first.collected_at),
-      )[0] || null,
-    [metrics],
-  );
-
-  if (loading && !device) return <Loading message="Đang tải thông tin thiết bị..." />;
-
-  if (notFound) {
-    return (
-      <section className="not-found panel">
-        <span className="not-found__code">404</span>
-        <h1>Không tìm thấy thiết bị</h1>
-        <p>Thiết bị này không tồn tại hoặc đã bị xóa khỏi hệ thống.</p>
-        <Link className="button button--primary" to="/devices">← Quay lại danh sách</Link>
-      </section>
-    );
-  }
-
-  if (error && !device) {
-    return (
-      <section className="not-found panel">
-        <span className="not-found__icon">!</span>
-        <h1>Không thể tải dữ liệu</h1>
-        <p>{error}</p>
-        <div className="form-actions form-actions--center">
-          <Link className="button button--secondary" to="/devices">← Quay lại</Link>
-          <button className="button button--primary" type="button" onClick={loadDeviceData}>Thử lại</button>
-        </div>
-      </section>
-    );
-  }
-
-  if (!device) return null;
-
+  if (notFound) return <div className="page page--center"><EmptyState title="Không tìm thấy thiết bị" description="Thiết bị có thể đã bị xóa hoặc đường dẫn không hợp lệ." action={<Link className="button button--primary" to="/devices">Quay lại danh sách</Link>} /></div>;
+  if (polling.isInitialLoading && !device) return <div className="page"><LoadingState /></div>;
   return (
-    <>
-      <Link className="back-link" to="/devices">← Quay lại danh sách thiết bị</Link>
-      <PageHeader
-        eyebrow={`Chi tiết thiết bị #${device.id}`}
-        description={`Cập nhật gần nhất: ${formatDateTime(device.updated_at)}`}
-        detail
-        actions={
-          <button className="button button--secondary" type="button" onClick={loadDeviceData} disabled={loading}>
-            ↻ {loading ? "Đang tải..." : "Tải lại"}
-          </button>
-        }
-      >
-          <div className="title-with-badge"><h1>{device.name}</h1><StatusBadge status={device.status} /></div>
-      </PageHeader>
-
-      <ErrorMessage message={error} onRetry={loadDeviceData} />
-
-      <section className="device-overview-grid">
-        <article className="info-card"><span>Địa chỉ IP</span><strong className="mono">{device.ip_address}</strong></article>
-        <article className="info-card"><span>Vị trí</span><strong>{device.location || "Chưa cập nhật"}</strong></article>
-        <article className="info-card"><span>Ngày thêm</span><strong>{formatDateTime(device.created_at)}</strong></article>
-        <article className="info-card"><span>Metric gần nhất</span><strong>{latestMetric ? formatDateTime(latestMetric.collected_at) : "Chưa có"}</strong></article>
-      </section>
-
-      {latestMetric && (
-        <section className="latest-metrics" aria-label="Chỉ số gần nhất">
-          <article><span>Latency</span><strong>{formatMetric(latestMetric.latency_ms, "ms")}</strong></article>
-          <article><span>Packet loss</span><strong>{formatMetric(latestMetric.packet_loss_percent, "%")}</strong></article>
-          <article><span>CPU</span><strong>{formatMetric(latestMetric.cpu_percent, "%")}</strong></article>
-          <article><span>RAM</span><strong>{formatMetric(latestMetric.memory_percent, "%")}</strong></article>
-          <article><span>Bandwidth</span><strong>{formatMetric(latestMetric.bandwidth_mbps, "Mbps")}</strong></article>
-        </section>
+    <div className="page">
+      <PageHeader eyebrow="Chi tiết thiết bị" title={device?.name || "Thiết bị"} description={device ? device.ip_address + (device.location ? " • " + device.location : "") : "Đang lấy thông tin thiết bị"} actions={<Link className="button button--secondary" to="/devices">← Danh sách thiết bị</Link>} />
+      <LiveConnectionBadge status={liveStatus} lastUpdated={polling.lastSuccessAt} intervalMs={intervalMs} onToggle={polling.togglePaused} onRefresh={polling.refresh} refreshing={polling.isRefreshing} />
+      {polling.error && <ErrorBanner message={polling.error.message} onRetry={polling.refresh} />}
+      {device && (
+        <>
+          <section className="device-overview panel">
+            <div><span className="section-label">Trạng thái</span><StatusBadge status={device.status} /></div>
+            <div><span className="section-label">Địa chỉ IP</span><strong className="mono">{device.ip_address}</strong></div>
+            <div><span className="section-label">Vị trí</span><strong>{device.location || "—"}</strong></div>
+            <div><span className="section-label">Metric gần nhất</span><strong>{formatDateTime(latest?.collected_at)}</strong></div>
+          </section>
+          <section className="kpi-grid kpi-grid--metrics">
+            <article className="kpi-card"><span>Latency gần nhất</span><strong>{formatMetric(latest?.latency_ms, "ms")}</strong></article>
+            <article className="kpi-card"><span>Packet loss gần nhất</span><strong>{formatMetric(latest?.packet_loss_percent, "%")}</strong></article>
+            <article className="kpi-card"><span>CPU gần nhất</span><strong>{formatMetric(latest?.cpu_percent, "%")}</strong></article>
+            <article className="kpi-card"><span>RAM gần nhất</span><strong>{formatMetric(latest?.memory_percent, "%")}</strong></article>
+            <article className="kpi-card"><span>Bandwidth gần nhất</span><strong>{formatMetric(latest?.bandwidth_mbps, "Mbps")}</strong></article>
+          </section>
+          {!metrics.length ? <EmptyState title="Thiết bị chưa có metric" description="Biểu đồ sẽ được cập nhật khi Collector gửi dữ liệu." /> : (
+            <div className="charts-grid">
+              <MetricChart title="Latency" description="Độ trễ phản hồi của thiết bị" data={chartData} lines={[{ dataKey: "latency_ms", name: "Latency", color: "var(--chart-blue)" }]} unit="ms" threshold={100} />
+              <MetricChart title="Packet loss" description="Tỷ lệ gói tin thất thoát" data={chartData} lines={[{ dataKey: "packet_loss_percent", name: "Packet loss", color: "var(--chart-orange)" }]} unit="%" domain={[0, 100]} threshold={20} />
+              <MetricChart title="CPU" description="Mức sử dụng bộ xử lý" data={chartData} lines={[{ dataKey: "cpu_percent", name: "CPU", color: "var(--chart-purple)" }]} unit="%" domain={[0, 100]} threshold={90} />
+              <MetricChart title="RAM" description="Mức sử dụng bộ nhớ" data={chartData} lines={[{ dataKey: "memory_percent", name: "RAM", color: "var(--chart-teal)" }]} unit="%" domain={[0, 100]} threshold={90} />
+              <MetricChart title="Bandwidth" description="Băng thông báo cáo của thiết bị" data={chartData} lines={[{ dataKey: "bandwidth_mbps", name: "Bandwidth", color: "var(--chart-green)" }]} unit="Mbps" />
+            </div>
+          )}
+        </>
       )}
-
-      {metrics.length === 0 ? (
-        <EmptyState
-          title="Thiết bị chưa có chỉ số"
-          message="Dữ liệu biểu đồ sẽ xuất hiện sau khi collector gửi chỉ số về backend."
-        />
-      ) : (
-        <section className="charts-grid">
-          <MetricChart metrics={metrics} dataKey="latency_ms" title="Latency" unit="ms" color="var(--color-success)" />
-          <MetricChart metrics={metrics} dataKey="packet_loss_percent" title="Packet loss" unit="%" color="var(--color-warning)" domain={[0, 100]} />
-        </section>
-      )}
-    </>
+    </div>
   );
 }
