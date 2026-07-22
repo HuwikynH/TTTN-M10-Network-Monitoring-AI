@@ -36,7 +36,7 @@ export default function DeviceDetailPage() {
   }, { intervalMs, enabled: !notFound });
   const chartData = useMemo(() => sortMetricsAscending(metrics).slice(-120), [metrics]);
   const latest = useMemo(() => newestMetric(metrics), [metrics]);
-  const liveStatus = polling.paused ? "paused" : polling.error ? "disconnected" : polling.isRefreshing ? "refreshing" : isStale(latest?.collected_at, intervalMs) ? "stale" : "live";
+  const liveStatus = polling.paused ? "paused" : polling.error ? "disconnected" : isStale(latest?.collected_at, intervalMs) ? "stale" : "live";
 
   if (notFound) return <div className="page page--center"><EmptyState title="Không tìm thấy thiết bị" description="Thiết bị có thể đã bị xóa hoặc đường dẫn không hợp lệ." action={<Link className="button button--primary" to="/devices">Quay lại danh sách</Link>} /></div>;
   if (polling.isInitialLoading && !device) return <div className="page"><LoadingState /></div>;

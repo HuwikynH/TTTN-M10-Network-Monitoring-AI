@@ -1,4 +1,7 @@
-const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1").replace(/\/$/, "");
+import { mockAiApi, mockAlertApi, mockDashboardApi, mockDeviceApi, mockMetricApi, mockTrafficApi, resetMockData } from "./mockApi";
+
+const API_URL = (import.meta.env.VITE_API_URL || "http://127.0.0.1:8000/api/v1").replace(/\/$/, "");
+const USE_MOCK_DATA = import.meta.env.VITE_USE_MOCK_DATA === "true";
 
 function normalizeErrorDetail(payload) {
   if (!payload) return "Không thể xử lý yêu cầu.";
@@ -46,9 +49,9 @@ function queryString(params) {
   return value ? `?${value}` : "";
 }
 
-export const dashboardApi = { getSummary: (options) => request("/dashboard/summary", options) };
+const realDashboardApi = { getSummary: (options) => request("/dashboard/summary", options) };
 
-export const deviceApi = {
+const realDeviceApi = {
   list: (options) => request("/devices", options),
   get: (deviceId, options) => request(`/devices/${deviceId}`, options),
   create: (payload, options = {}) => request("/devices", { ...options, method: "POST", body: JSON.stringify(payload) }),
@@ -56,16 +59,27 @@ export const deviceApi = {
   remove: (deviceId, options = {}) => request(`/devices/${deviceId}`, { ...options, method: "DELETE" }),
 };
 
-export const metricApi = {
+const realMetricApi = {
   list: ({ deviceId, skip = 0, limit = 120, signal } = {}) => request(`/metrics${queryString({ device_id: deviceId, skip, limit })}`, { signal }),
   get: (metricId, options) => request(`/metrics/${metricId}`, options),
   listByDevice: ({ deviceId, skip = 0, limit = 120, signal }) => request(`/devices/${deviceId}/metrics${queryString({ skip, limit })}`, { signal }),
 };
 
-export const alertApi = {
+const realAlertApi = {
   list: ({ deviceId, status, skip = 0, limit = 100, signal } = {}) => request(`/alerts${queryString({ device_id: deviceId, status, skip, limit })}`, { signal }),
   get: (alertId, options) => request(`/alerts/${alertId}`, options),
   updateStatus: (alertId, status, options = {}) => request(`/alerts/${alertId}`, { ...options, method: "PATCH", body: JSON.stringify({ status }) }),
 };
 
-export { API_URL };
+export const dashboardApi = USE_MOCK_DATA ? mockDashboardApi : realDashboardApi;
+export const deviceApi = USE_MOCK_DATA ? mockDeviceApi : realDeviceApi;
+export const metricApi = USE_MOCK_DATA ? mockMetricApi : realMetricApi;
+export const alertApi = USE_MOCK_DATA ? mockAlertApi : realAlertApi;
+export const trafficApi = USE_MOCK_DATA ? mockTrafficApi : { getFlowData: async () => null };
+export const aiApi = USE_MOCK_DATA ? mockAiApi : { list: async () => [] };
+
+export function resetDemoData() {
+  if (USE_MOCK_DATA) resetMockData();
+}
+
+export { API_URL, USE_MOCK_DATA };

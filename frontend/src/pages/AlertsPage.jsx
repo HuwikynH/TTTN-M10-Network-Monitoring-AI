@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { alertApi, deviceApi } from "../api/api";
 import EmptyState from "../components/EmptyState";
 import ErrorBanner from "../components/ErrorBanner";
@@ -14,6 +14,7 @@ export default function AlertsPage() {
   const [levelFilter, setLevelFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [updatingId, setUpdatingId] = useState(null);
+  const updatingRef = useRef(null);
   const [actionError, setActionError] = useState("");
   const polling = useAutoRefresh(async (signal) => {
     const [alertData, deviceData] = await Promise.all([alertApi.list({ limit: 100, signal }), deviceApi.list({ signal })]);
@@ -23,8 +24,9 @@ export default function AlertsPage() {
   const names = useMemo(() => deviceNameMap(devices), [devices]);
   const filtered = useMemo(() => alerts.filter((alert) => (levelFilter === "all" || alert.level === levelFilter) && (statusFilter === "all" || alert.status === statusFilter)), [alerts, levelFilter, statusFilter]);
   const updateStatus = async (alert, status) => {
+    if (updatingRef.current) return;
     if (status === "resolved" && !window.confirm("Đánh dấu cảnh báo này là đã xử lý?")) return;
-    if (updatingId) return;
+    updatingRef.current = alert.id;
     setUpdatingId(alert.id);
     setActionError("");
     try {
@@ -32,11 +34,11 @@ export default function AlertsPage() {
       setAlerts((current) => current.map((item) => item.id === updated.id ? updated : item));
       await polling.refresh();
     } catch (error) { setActionError(error.message); }
-    finally { setUpdatingId(null); }
+    finally { updatingRef.current = null; setUpdatingId(null); }
   };
   return (
     <div className="page">
-      <PageHeader eyebrow="Quản lý sự cố" title="Cảnh báo" description="Xác nhận, theo dõi và đóng các cảnh báo được sinh từ metric thiết bị." actions={<button className="button button--secondary" type="button" onClick={polling.refresh} disabled={polling.isRefreshing}>{polling.isRefreshing ? "Đang tải…" : "Tải lại"}</button>} />
+      <PageHeader eyebrow="Quản lý sự cố" title="Cảnh báo" description="Xác nhận, theo dõi và đóng các cảnh báo được sinh từ metric thiết bị." actions={<div className="page-header-action-group"><span className={"background-refresh-status" + (polling.isRefreshing ? " background-refresh-status--active" : "")} aria-live="polite">{polling.isRefreshing ? "Đang cập nhật" : ""}</span><button className="button button--secondary stable-refresh-button" type="button" onClick={polling.refresh} disabled={polling.isRefreshing}>Tải lại</button></div>} />
       {(polling.error || actionError) && <ErrorBanner message={actionError || polling.error.message} onRetry={polling.refresh} />}
       <section className="panel">
         <div className="filter-bar filter-bar--alerts">

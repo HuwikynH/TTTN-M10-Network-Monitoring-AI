@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { deviceApi } from "../api/api";
+import ConfirmDialog from "../components/ConfirmDialog";
 import DeviceForm from "../components/DeviceForm";
 import EmptyState from "../components/EmptyState";
 import ErrorBanner from "../components/ErrorBanner";
@@ -11,18 +12,34 @@ import StatusBadge from "../components/StatusBadge";
 import useAutoRefresh from "../hooks/useAutoRefresh";
 import { formatDateTime } from "../utils";
 
+const DEVICE_REFRESH_INTERVAL_MS = 20_000;
+
 export default function DevicesPage() {
   const [devices, setDevices] = useState([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [formSubmitting, setFormSubmitting] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
   const [actionError, setActionError] = useState("");
-  const polling = useAutoRefresh(async (signal) => setDevices(await deviceApi.list({ signal })));
+  const interactionOpen = creating || Boolean(editing) || Boolean(deleteTarget) || formSubmitting || deleting;
+  const polling = useAutoRefresh(async (signal) => setDevices(await deviceApi.list({ signal })), {
+    enabled: !interactionOpen,
+    intervalMs: DEVICE_REFRESH_INTERVAL_MS,
+    refreshOnResume: false,
+  });
   const filtered = useMemo(() => {
     const term = search.trim().toLocaleLowerCase("vi");
     return devices.filter((device) => (statusFilter === "all" || device.status === statusFilter) && (!term || [device.name, device.ip_address, device.location].some((value) => value?.toLocaleLowerCase("vi").includes(term))));
   }, [devices, search, statusFilter]);
+
+  const closeForm = useCallback(() => {
+    if (formSubmitting) return;
+    setCreating(false);
+    setEditing(null);
+  }, [formSubmitting]);
 
   const save = async (payload) => {
     if (editing) await deviceApi.update(editing.id, payload);
@@ -31,11 +48,17 @@ export default function DevicesPage() {
     setCreating(false);
     await polling.refresh();
   };
-  const remove = async (device) => {
-    if (!window.confirm("Xóa thiết bị “" + device.name + "” và toàn bộ metric, cảnh báo liên quan?")) return;
+  const remove = async () => {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
     setActionError("");
-    try { await deviceApi.remove(device.id); await polling.refresh(); }
+    try {
+      await deviceApi.remove(deleteTarget.id);
+      setDeleteTarget(null);
+      await polling.refresh();
+    }
     catch (error) { setActionError(error.message); }
+    finally { setDeleting(false); }
   };
 
   return (
@@ -46,13 +69,14 @@ export default function DevicesPage() {
         <div className="filter-bar">
           <div className="field field--search"><label htmlFor="device-search">Tìm kiếm</label><input id="device-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tên, IP hoặc vị trí" /></div>
           <div className="field field--filter"><label htmlFor="device-status">Trạng thái</label><select id="device-status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">Tất cả</option><option value="online">Online</option><option value="offline">Offline</option><option value="unknown">Chưa xác định</option></select></div>
-          <button className="button button--secondary filter-refresh" type="button" onClick={polling.refresh} disabled={polling.isRefreshing}>{polling.isRefreshing ? "Đang tải…" : "Tải lại"}</button>
+          <div className="refresh-controls"><span className={"background-refresh-status" + (polling.isRefreshing ? " background-refresh-status--active" : "")} aria-live="polite">{polling.isRefreshing ? "Đang cập nhật" : ""}</span><button className="button button--secondary filter-refresh" type="button" onClick={polling.refresh} disabled={polling.isRefreshing}>Tải lại</button></div>
         </div>
         {polling.isInitialLoading && !devices.length ? <LoadingState /> : polling.error && !polling.lastSuccessAt && !devices.length ? <EmptyState title="Chưa thể tải danh sách thiết bị" description="Kết nối lại Backend rồi thử tải dữ liệu." /> : !devices.length ? <EmptyState title="Chưa có thiết bị" description="Thêm thiết bị đầu tiên để Collector có thể gửi metric." action={<button className="button button--primary" type="button" onClick={() => setCreating(true)}>Thêm thiết bị</button>} /> : !filtered.length ? <EmptyState title="Không tìm thấy thiết bị" description="Hãy thay đổi từ khóa hoặc bộ lọc trạng thái." /> : (
-          <div className="table-wrap"><table><thead><tr><th>Thiết bị</th><th>Địa chỉ IP</th><th>Vị trí</th><th>Trạng thái</th><th>Cập nhật</th><th>Hành động</th></tr></thead><tbody>{filtered.map((device) => <tr key={device.id}><td><Link className="table-primary" to={"/devices/" + device.id}>{device.name}</Link></td><td className="mono">{device.ip_address}</td><td>{device.location || "—"}</td><td><StatusBadge status={device.status} /></td><td>{formatDateTime(device.updated_at)}</td><td><div className="table-actions"><button className="text-button" type="button" onClick={() => setEditing(device)}>Sửa</button><button className="text-button text-button--danger" type="button" onClick={() => remove(device)}>Xóa</button></div></td></tr>)}</tbody></table></div>
+          <div className="table-wrap"><table><thead><tr><th>Thiết bị</th><th>Địa chỉ IP</th><th>Vị trí</th><th>Trạng thái</th><th>Cập nhật</th><th>Hành động</th></tr></thead><tbody>{filtered.map((device) => <tr key={device.id}><td><Link className="table-primary" to={"/devices/" + device.id}>{device.name}</Link></td><td className="mono">{device.ip_address}</td><td>{device.location || "—"}</td><td><StatusBadge status={device.status} /></td><td>{formatDateTime(device.updated_at)}</td><td><div className="table-actions"><button className="text-button" type="button" onClick={() => setEditing(device)}>Sửa</button><button className="text-button text-button--danger" type="button" onClick={() => setDeleteTarget(device)}>Xóa</button></div></td></tr>)}</tbody></table></div>
         )}
       </section>
-      {(creating || editing) && <Modal title={editing ? "Chỉnh sửa thiết bị" : "Thêm thiết bị"} onClose={() => { setCreating(false); setEditing(null); }}><DeviceForm device={editing} onSubmit={save} onCancel={() => { setCreating(false); setEditing(null); }} /></Modal>}
+      {(creating || editing) && <Modal title={editing ? "Chỉnh sửa thiết bị" : "Thêm thiết bị"} onClose={closeForm} closeDisabled={formSubmitting}><DeviceForm device={editing} isOpen onSubmit={save} onCancel={closeForm} onSubmittingChange={setFormSubmitting} /></Modal>}
+      <ConfirmDialog open={Boolean(deleteTarget)} title="Xóa thiết bị" description={deleteTarget ? "Xóa thiết bị “" + deleteTarget.name + "” và toàn bộ metric, cảnh báo liên quan?" : ""} confirmLabel="Xóa thiết bị" busy={deleting} onConfirm={remove} onCancel={() => { if (!deleting) setDeleteTarget(null); }} />
     </div>
   );
 }

@@ -8,21 +8,27 @@ export function getRefreshInterval() {
 export default function useAutoRefresh(task, options = {}) {
   const intervalMs = options.intervalMs ?? getRefreshInterval();
   const enabled = options.enabled ?? true;
-  const [paused, setPaused] = useState(options.initiallyPaused ?? false);
+  const refreshOnResume = options.refreshOnResume ?? true;
+  const [paused, setPausedState] = useState(options.initiallyPaused ?? false);
   const [isInitialLoading, setIsInitialLoading] = useState(enabled && !paused);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [lastSuccessAt, setLastSuccessAt] = useState(null);
   const taskRef = useRef(task);
+  const enabledRef = useRef(enabled);
+  const pausedRef = useRef(paused);
   const mountedRef = useRef(false);
   const controllerRef = useRef(null);
   const inFlightRef = useRef(false);
   const requestIdRef = useRef(0);
   const hasAttemptedRef = useRef(false);
   taskRef.current = task;
+  enabledRef.current = enabled;
+  pausedRef.current = paused;
 
-  const execute = useCallback(async ({ replace = false } = {}) => {
-    if (!mountedRef.current || !enabled || paused || document.visibilityState === "hidden") return;
+  const execute = useCallback(async ({ replace = false, force = false } = {}) => {
+    if (!mountedRef.current || document.visibilityState === "hidden") return;
+    if (!force && (!enabledRef.current || pausedRef.current)) return;
     if (inFlightRef.current) {
       if (!replace) return;
       controllerRef.current?.abort();
@@ -51,16 +57,25 @@ export default function useAutoRefresh(task, options = {}) {
         setIsRefreshing(false);
       }
     }
-  }, [enabled, paused]);
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
-    if (!enabled || paused) {
-      setIsInitialLoading(false);
+    return () => {
+      mountedRef.current = false;
       controllerRef.current?.abort();
-      return () => { mountedRef.current = false; };
+      inFlightRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!enabled || paused) {
+      controllerRef.current?.abort();
+      setIsRefreshing(false);
+      if (!hasAttemptedRef.current) setIsInitialLoading(false);
+      return undefined;
     }
-    execute();
+    if (!hasAttemptedRef.current || refreshOnResume) execute({ replace: true });
     const timerId = window.setInterval(() => execute(), intervalMs);
     const onVisibilityChange = () => {
       if (document.visibilityState === "hidden") controllerRef.current?.abort();
@@ -68,24 +83,37 @@ export default function useAutoRefresh(task, options = {}) {
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
-      mountedRef.current = false;
       window.clearInterval(timerId);
       document.removeEventListener("visibilitychange", onVisibilityChange);
-      controllerRef.current?.abort();
-      inFlightRef.current = false;
     };
-  }, [enabled, execute, intervalMs, paused]);
+  }, [enabled, execute, intervalMs, paused, refreshOnResume]);
+
+  const setPaused = useCallback((value) => {
+    setPausedState((current) => {
+      const next = typeof value === "function" ? value(current) : value;
+      pausedRef.current = next;
+      if (next) controllerRef.current?.abort();
+      return next;
+    });
+  }, []);
+
+  const pause = useCallback(() => setPaused(true), [setPaused]);
+  const resume = useCallback(() => setPaused(false), [setPaused]);
+  const refresh = useCallback(() => execute({ replace: true, force: true }), [execute]);
+  const togglePaused = useCallback(() => setPaused((current) => !current), [setPaused]);
 
   return {
     error,
+    initialLoading: isInitialLoading,
     isInitialLoading,
+    refreshing: isRefreshing,
     isRefreshing,
     lastSuccessAt,
     paused,
-    pause: useCallback(() => setPaused(true), []),
-    refresh: useCallback(() => execute({ replace: true }), [execute]),
-    resume: useCallback(() => setPaused(false), []),
+    pause,
+    refresh,
+    resume,
     setPaused,
-    togglePaused: useCallback(() => setPaused((current) => !current), []),
+    togglePaused,
   };
 }

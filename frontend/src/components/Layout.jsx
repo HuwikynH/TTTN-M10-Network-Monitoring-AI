@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { resetDemoData, USE_MOCK_DATA } from "../api/api";
 import { useTheme } from "../context/ThemeContext";
+import DemoDataBadge from "./DemoDataBadge";
 
 const navigation = [
   { to: "/", label: "Tổng quan", end: true, icon: "grid" },
-  { to: "/traffic", label: "Giám sát trực tiếp", icon: "pulse" },
+  { to: "/traffic", label: "Giám sát lưu lượng", icon: "pulse" },
   { to: "/devices", label: "Thiết bị", icon: "server" },
   { to: "/alerts", label: "Cảnh báo", icon: "bell" },
 ];
@@ -29,6 +31,12 @@ export default function Layout() {
     return () => document.body.classList.remove("menu-open");
   }, [menuOpen]);
 
+  const handleResetDemo = () => {
+    if (!window.confirm("Khôi phục toàn bộ dữ liệu mô phỏng về trạng thái ban đầu?")) return;
+    resetDemoData();
+    window.location.reload();
+  };
+
   return (
     <div className="app-shell">
       <aside className={"sidebar" + (menuOpen ? " sidebar--open" : "")}>
@@ -36,14 +44,18 @@ export default function Layout() {
         <nav className="main-nav" aria-label="Điều hướng chính">
           {navigation.map((item) => <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => isActive ? "nav-link nav-link--active" : "nav-link"}><Icon name={item.icon} /><span>{item.label}</span></NavLink>)}
         </nav>
-        <div className="sidebar-footer"><span className="system-label">Network Operations Center</span><span className="system-version">Frontend • REST API</span></div>
+        <div className="sidebar-footer"><span className="system-label">Network Operations Center</span><span className="system-version">{USE_MOCK_DATA ? "Mock API • localStorage" : "Frontend • REST API"}</span></div>
       </aside>
       {menuOpen && <button className="sidebar-backdrop" type="button" aria-label="Đóng menu" onClick={() => setMenuOpen(false)} />}
       <div className="app-content">
         <header className="topbar">
           <button className="icon-button mobile-menu-button" type="button" aria-label="Mở menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}><span /><span /><span /></button>
           <div className="topbar-context"><span className="topbar-dot" />Hệ thống giám sát đang sẵn sàng</div>
-          <button className="theme-toggle" type="button" onClick={toggleTheme} aria-label={"Chuyển sang giao diện " + (theme === "dark" ? "sáng" : "tối")}><span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span><span>{theme === "dark" ? "Sáng" : "Tối"}</span></button>
+          <div className="topbar-actions">
+            {USE_MOCK_DATA && <DemoDataBadge compact />}
+            {USE_MOCK_DATA && <button className="demo-reset-button" type="button" onClick={handleResetDemo} title="Xóa thay đổi cục bộ và nạp lại bộ dữ liệu demo ban đầu">Đặt lại demo</button>}
+            <button className="theme-toggle" type="button" onClick={toggleTheme} aria-label={"Chuyển sang giao diện " + (theme === "dark" ? "sáng" : "tối")}><span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span><span>{theme === "dark" ? "Sáng" : "Tối"}</span></button>
+          </div>
         </header>
         <main className="main-content"><Outlet /></main>
       </div>

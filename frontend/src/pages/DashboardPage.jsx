@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { alertApi, dashboardApi, deviceApi } from "../api/api";
+import { alertApi, dashboardApi, deviceApi, USE_MOCK_DATA } from "../api/api";
+import DemoDataBadge from "../components/DemoDataBadge";
 import EmptyState from "../components/EmptyState";
 import ErrorBanner from "../components/ErrorBanner";
 import LoadingState from "../components/LoadingState";
@@ -49,18 +50,18 @@ export default function DashboardPage() {
     ["Cảnh báo Critical", summary.critical_alerts, "critical"],
     ["Tổng số metrics", summary.total_metrics ?? "—", "info"],
   ] : [];
-  const dataStatus = polling.error ? "disconnected" : polling.isRefreshing ? "refreshing" : isStale(summary?.last_metric_at, intervalMs) ? "stale" : "live";
+  const dataStatus = polling.error ? "disconnected" : isStale(summary?.last_metric_at, intervalMs) ? "stale" : "live";
 
   return (
     <div className="page">
-      <PageHeader eyebrow="Tổng quan hệ thống" title="Network Operations Center" description="Theo dõi sức khỏe thiết bị, metric và cảnh báo từ một không gian điều hành thống nhất." actions={<Link className="button button--primary" to="/traffic">Mở giám sát trực tiếp</Link>} />
+      <PageHeader eyebrow="Tổng quan hệ thống" title="Network Operations Center" description="Theo dõi sức khỏe thiết bị, metric và cảnh báo từ một không gian điều hành thống nhất." actions={<div className="page-header-action-group">{USE_MOCK_DATA && <DemoDataBadge />}<Link className="button button--primary" to="/traffic">Mở giám sát trực tiếp</Link></div>} />
       {polling.error && <ErrorBanner message={polling.error.message} onRetry={polling.refresh} />}
       {polling.isInitialLoading && !summary ? <LoadingState /> : polling.error && !summary ? (
         <section className="panel"><EmptyState title="Chưa thể tải dữ liệu tổng quan" description="Kết nối lại Backend rồi nhấn Thử lại để tải trạng thái hệ thống." /></section>
       ) : (
         <>
           <section className="system-strip">
-            <div><span className="section-label">Trạng thái dữ liệu</span><StatusBadge status={dataStatus} /></div>
+            <div><span className="section-label">Trạng thái dữ liệu</span><div className="status-with-refresh"><StatusBadge status={dataStatus} /><span className={"background-refresh-status" + (polling.isRefreshing ? " background-refresh-status--active" : "")} aria-live="polite">{polling.isRefreshing ? "Đang cập nhật" : ""}</span></div></div>
             <div><span className="section-label">Metric gần nhất</span><strong>{formatDateTime(summary?.last_metric_at)}</strong></div>
             <div><span className="section-label">Chu kỳ cập nhật</span><strong>{Math.round(intervalMs / 1000)} giây</strong></div>
             {summaryFallback && <span className="fallback-note">Backend cũ: số liệu đang được tính từ danh sách hiện có.</span>}

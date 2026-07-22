@@ -1,11 +1,23 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import StatusBadge from "./StatusBadge";
 
-export default function DeviceForm({ device, onSubmit, onCancel }) {
-  const [values, setValues] = useState({ name: device?.name || "", ip_address: device?.ip_address || "", location: device?.location || "" });
+function valuesFromDevice(device) {
+  return { name: device?.name || "", ip_address: device?.ip_address || "", location: device?.location || "" };
+}
+
+export default function DeviceForm({ device, isOpen = true, onSubmit, onCancel, onSubmittingChange }) {
+  const deviceId = device?.id ?? "new";
+  const [values, setValues] = useState(() => valuesFromDevice(device));
   const [errors, setErrors] = useState({});
   const [submitError, setSubmitError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  useEffect(() => {
+    if (!isOpen) return;
+    setValues(valuesFromDevice(device));
+    setErrors({});
+    setSubmitError("");
+  }, [deviceId, isOpen]);
   const change = (event) => {
     const { name, value } = event.target;
     setValues((current) => ({ ...current, [name]: value }));
@@ -13,16 +25,19 @@ export default function DeviceForm({ device, onSubmit, onCancel }) {
   };
   const submit = async (event) => {
     event.preventDefault();
+    if (submittingRef.current) return;
     const payload = { name: values.name.trim(), ip_address: values.ip_address.trim(), location: values.location.trim() || null };
     const nextErrors = {};
     if (!payload.name) nextErrors.name = "Vui lòng nhập tên thiết bị.";
     if (!payload.ip_address) nextErrors.ip_address = "Vui lòng nhập địa chỉ IPv4 hoặc IPv6.";
     if (Object.keys(nextErrors).length) { setErrors(nextErrors); return; }
+    submittingRef.current = true;
     setSubmitting(true);
+    onSubmittingChange?.(true);
     setSubmitError("");
     try { await onSubmit(device ? payload : { ...payload, status: "unknown" }); }
     catch (error) { setSubmitError(error.message); }
-    finally { setSubmitting(false); }
+    finally { submittingRef.current = false; setSubmitting(false); onSubmittingChange?.(false); }
   };
   return (
     <form className="device-form" onSubmit={submit} noValidate>
