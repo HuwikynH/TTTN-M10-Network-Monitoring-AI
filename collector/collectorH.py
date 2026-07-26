@@ -1,3 +1,4 @@
+import argparse
 import json
 import time
 import datetime
@@ -17,6 +18,9 @@ DEMO_NORMALIZE_CPU = False
 POST_TO_BACKEND = True
 BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://localhost:8000/api/v1").rstrip("/")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATASET_LABEL = "normal"
+DATASET_SCENARIO = "baseline"
+DATASET_OUTPUT = "network_dataset.json"
 
 CPU_DEMO_RANGES = {
     "CORE": (1.0, 2.5),
@@ -33,8 +37,7 @@ DEVICES = [
     {"name": "DIST", "ip": "10.0.3.254", "community": "public", "os_type": "mikrotik", "device_type": "router", "interface_name": "eth3"},
     {"name": "CORE", "ip": "10.0.2.1", "community": "public", "os_type": "mikrotik", "device_type": "router", "interface_name": "eth1"},
     {"name": "ASAv", "ip": "10.0.1.5", "community": "public", "os_type": "asa", "device_type": "firewall", "interface_name": "inside"},
-    # DMZ được trả về đúng bản chất là Cisco IOS (iol)
-    {"name": "DMZ-SERVER", "ip": "10.20.20.10", "community": "public", "os_type": "ios", "device_type": "server", "interface_name": "e0/0"},
+    {"name": "DMZ-SERVER", "ip": "10.20.20.10", "community": "public", "os_type": "mikrotik", "device_type": "server", "interface_name": "ether1"},
     {"name": "SW", "ip": "10.0.10.2", "community": "public", "os_type": "mikrotik", "device_type": "switch", "interface_name": "bridge-lan"}
 ]
 
@@ -71,8 +74,8 @@ OIDS = {
     }
 }
 
-INTERVAL_SECONDS = 10
-TRAFFIC_SAMPLE_DELAY = 5  # số giây chờ giữa 2 lần đo octet để tính Mbps
+INTERVAL_SECONDS = 2
+TRAFFIC_SAMPLE_DELAY = 1  # số giây chờ giữa 2 lần đo octet để tính Mbps
 
 # Bật để in ra raw response từng OID -> giúp xác định OID sai hay thiết bị rớt gói
 DEBUG = RAW_SNMP_DEBUG
@@ -389,8 +392,8 @@ async def collect_device(dev, traffic_t0, timestamp):
                 "latency_ms": latency,
                 "packet_loss_percent": pkt_loss,
                 "uptime_seconds": 0,
-                "scenario": "baseline",
-                "label": "normal",
+                "scenario": DATASET_SCENARIO,
+                "label": DATASET_LABEL,
                 "collected_at": timestamp
             }
             if PRINT_DEVICE_SUMMARY:
@@ -430,8 +433,8 @@ async def collect_device(dev, traffic_t0, timestamp):
             "latency_ms": latency,
             "packet_loss_percent": pkt_loss,
             "uptime_seconds": round(uptime_seconds),
-            "scenario": "baseline",
-            "label": "normal",
+            "scenario": DATASET_SCENARIO,
+            "label": DATASET_LABEL,
             "collected_at": timestamp
         }
 
@@ -475,7 +478,9 @@ async def run_collection_cycle():
     )
     dataset = [r for r in records if r is not None]
 
-    filename = os.path.join(BASE_DIR, "network_dataset.json")
+    filename = DATASET_OUTPUT
+    if not os.path.isabs(filename):
+        filename = os.path.join(BASE_DIR, filename)
     try:
         with open(filename, 'r', encoding='utf-8') as f:
             existing_data = json.load(f)
@@ -498,6 +503,7 @@ async def run_collection_cycle():
 
 async def main_loop():
     print("=== BAT DAU TIEN TRINH THU THAP LIEN TUC (huynh_lab) ===")
+    print(f"Dataset label={DATASET_LABEL}, scenario={DATASET_SCENARIO}, output={DATASET_OUTPUT}")
     print("Nhan Ctrl + C de dung.\n")
     while True:
         await run_collection_cycle()
@@ -505,7 +511,32 @@ async def main_loop():
         await asyncio.sleep(INTERVAL_SECONDS)
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Collect lab network metrics into a JSON dataset.")
+    parser.add_argument(
+        "--label",
+        choices=["normal", "abnormal"],
+        default=DATASET_LABEL,
+        help="Ground-truth label for this collection run.",
+    )
+    parser.add_argument(
+        "--scenario",
+        default=DATASET_SCENARIO,
+        help="Collection scenario, for example baseline, stress_cpu, high_traffic, attack_test.",
+    )
+    parser.add_argument(
+        "--output",
+        default=DATASET_OUTPUT,
+        help="Dataset JSON output path. Relative paths are saved inside the collector folder.",
+    )
+    return parser.parse_args()
+
+
 if __name__ == '__main__':
+    args = parse_args()
+    DATASET_LABEL = args.label
+    DATASET_SCENARIO = args.scenario
+    DATASET_OUTPUT = args.output
     try:
         asyncio.run(main_loop())
     except KeyboardInterrupt:

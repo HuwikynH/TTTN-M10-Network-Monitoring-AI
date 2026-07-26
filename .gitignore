@@ -29,3 +29,10 @@ Thumbs.db
 report/images/*.png
 dataset/generated/*
 !dataset/generated/.gitkeep
+# AI & Dataset
+collector/network_dataset.json
+collector/train/
+*.joblib
+*_metrics.json
+*_report.md
+sample_ai_prediction_output.json
