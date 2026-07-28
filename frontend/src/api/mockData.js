@@ -154,7 +154,7 @@ export const MOCK_STORAGE_KEYS = {
   metrics: "network-monitoring-mock-metrics-v1",
   alerts: "network-monitoring-mock-alerts-v1",
   traffic: "network-monitoring-mock-traffic-v1",
-  aiResults: "network-monitoring-mock-ai-results-v1",
+  aiResults: "network-monitoring-mock-ai-results-v2",
   meta: "network-monitoring-mock-meta-v1",
 };
 
@@ -166,9 +166,33 @@ export function createDefaultMockState(now = Date.now()) {
     alerts: buildAlerts(now),
     traffic: buildTraffic(devices, now),
     aiResults: [
-      { id: 1, device_id: 5, score: 0.96, label: "connection_loss", explanation: "Thiết bị mất kết nối và không phát sinh metric mới.", created_at: new Date(now - 9 * MINUTE).toISOString() },
-      { id: 2, device_id: 9, score: 0.87, label: "resource_pressure", explanation: "CPU và packet loss đồng thời tăng cao.", created_at: new Date(now - 31 * MINUTE).toISOString() },
-      { id: 3, device_id: 10, score: 0.79, label: "bandwidth_saturation", explanation: "Băng thông WAN tiến gần ngưỡng công suất.", created_at: new Date(now - 63 * MINUTE).toISOString() },
+      {
+        id: 1,
+        device_id: 1,
+        status: "normal",
+        risk_score: 12,
+        top_scenario: "baseline",
+        scenario_probabilities: { baseline: 88, high_traffic: 4, high_latency: 3, stress_cpu: 2, packet_loss: 2, attack_test: 1 },
+        predicted_at: new Date(now - 2 * MINUTE).toISOString(),
+      },
+      {
+        id: 2,
+        device_id: 9,
+        status: "abnormal",
+        risk_score: 96,
+        top_scenario: "high_traffic",
+        scenario_probabilities: { baseline: 4, high_traffic: 62, high_latency: 21, stress_cpu: 8, packet_loss: 3, attack_test: 2 },
+        predicted_at: new Date(now - 3 * MINUTE).toISOString(),
+      },
+      {
+        id: 3,
+        device_id: 10,
+        status: "abnormal",
+        risk_score: 91,
+        top_scenario: "high_latency",
+        scenario_probabilities: { baseline: 9, high_traffic: 12, high_latency: 58, stress_cpu: 4, packet_loss: 13, attack_test: 4 },
+        predicted_at: new Date(now - 4 * MINUTE).toISOString(),
+      },
     ],
     meta: { version: 1, tick: 0, generated_at: new Date(now).toISOString(), last_advanced_at: new Date(now).toISOString() },
   };

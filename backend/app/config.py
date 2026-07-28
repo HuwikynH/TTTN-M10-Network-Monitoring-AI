@@ -1,5 +1,11 @@
 import os
 from dataclasses import dataclass
+from pathlib import Path
+
+
+DEFAULT_AI_MODEL_PATH = (
+    Path(__file__).resolve().parents[2] / "ai" / "models" / "scenario_random_forest.joblib"
+)
 
 
 @dataclass(frozen=True)
@@ -12,11 +18,8 @@ class Settings:
         for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
         if origin.strip()
     )
-    latency_warning_ms: float = float(os.getenv("LATENCY_WARNING_MS", "100"))
-    packet_loss_warning_percent: float = float(os.getenv("PACKET_LOSS_WARNING_PERCENT", "20"))
-    cpu_warning_percent: float = float(os.getenv("CPU_WARNING_PERCENT", "90"))
-    memory_warning_percent: float = float(os.getenv("MEMORY_WARNING_PERCENT", "90"))
     device_stale_seconds: int = int(os.getenv("DEVICE_STALE_SECONDS", "45"))
+    ai_model_path: str = os.getenv("AI_MODEL_PATH", str(DEFAULT_AI_MODEL_PATH))
 
 
 settings = Settings()

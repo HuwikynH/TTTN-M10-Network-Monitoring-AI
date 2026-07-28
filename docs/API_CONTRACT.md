@@ -46,6 +46,8 @@ Các API thiết bị:
   "packet_loss_percent": 0,
   "cpu_percent": null,
   "memory_percent": null,
+  "traffic_in_mbps": null,
+  "traffic_out_mbps": null,
   "bandwidth_mbps": null
 }
 ```
@@ -54,6 +56,7 @@ Quy ước:
 
 - Đơn vị latency: millisecond.
 - Packet loss, CPU, memory: phần trăm từ 0 đến 100.
+- Traffic inbound/outbound: Mbps; cả hai trường này cần có để chạy model AI.
 - Bandwidth: Mbps.
 - Thời gian do Backend ghi theo UTC.
 - Gửi metric với packet loss 100% sẽ chuyển thiết bị sang `offline`; các giá trị khác chuyển sang `online`.
@@ -94,14 +97,39 @@ PATCH /alerts/{id}
 }
 ```
 
-Backend tự sinh cảnh báo khi:
+Backend không tự suy diễn cảnh báo từ các ngưỡng CPU, RAM, traffic, latency hoặc
+packet loss cố định. Endpoint `POST /alerts` vẫn được giữ cho cảnh báo do người
+vận hành hoặc hệ thống bên ngoài tạo.
+Trạng thái kết nối thiết bị vẫn được cập nhật từ metric và thời gian nhận dữ liệu.
 
-- Packet loss bằng 100%: `critical`.
-- Packet loss từ 20%: `warning`.
-- Latency từ 100 ms: `warning`.
-- CPU hoặc memory từ 90%: `warning`.
+## AI Prediction
 
-Các ngưỡng có thể cấu hình bằng file `.env`.
+Khi metric chứa đủ sáu feature, Backend tự chạy model và lưu kết quả theo
+`device_id` và `metric_id`:
+
+```text
+cpu_percent
+memory_percent
+traffic_in_mbps
+traffic_out_mbps
+latency_ms
+packet_loss_percent
+```
+
+| Method | Endpoint | Mô tả |
+|---|---|---|
+| GET | `/ai/status` | Trạng thái model và feature contract |
+| GET | `/ai-predictions?device_id={id}` | Lịch sử dự đoán của thiết bị |
+
+Frontend đọc prediction mới nhất để hiển thị status, risk score, top scenario và
+xác suất sáu scenario. Khi prediction chuyển từ `normal` sang `abnormal`, hoặc
+scenario bất thường thay đổi, Backend lưu ngay một alert:
+
+- `risk_score < 90`: `warning`.
+- `risk_score >= 90`: `critical`.
+- Các lần quét liên tiếp vẫn cùng trạng thái và scenario không tạo alert trùng.
+- Sau khi prediction trở lại `normal`, lần bất thường tiếp theo được xem là một
+  sự kiện mới và được lưu lại.
 
 ## Dashboard
 

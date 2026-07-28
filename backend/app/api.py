@@ -6,11 +6,59 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import models, schemas
+from app.ai_service import model_status, predict_metric
 from app.config import settings
 from app.database import get_db
-from app.services import build_metric_alerts
 
 router = APIRouter(prefix="/api/v1")
+
+AI_ALERT_MESSAGES = {
+    "stress_cpu": "AI phát hiện CPU cao",
+    "high_traffic": "AI phát hiện băng thông cao",
+    "high_latency": "AI phát hiện latency cao",
+    "packet_loss": "AI phát hiện packet loss cao",
+    "attack_test": "AI phát hiện dấu hiệu tấn công",
+}
+
+
+def latest_ai_prediction(device_id: int, db: Session) -> models.AiPrediction | None:
+    query = (
+        select(models.AiPrediction)
+        .where(models.AiPrediction.device_id == device_id)
+        .order_by(
+            models.AiPrediction.predicted_at.desc(),
+            models.AiPrediction.id.desc(),
+        )
+        .limit(1)
+    )
+    return db.scalar(query)
+
+
+def create_ai_alert_on_transition(
+    device_id: int,
+    prediction: dict[str, object],
+    previous: models.AiPrediction | None,
+) -> models.Alert | None:
+    if prediction["status"] != "abnormal":
+        return None
+
+    scenario = str(prediction["top_scenario"])
+    is_new_event = (
+        previous is None
+        or previous.status != "abnormal"
+        or previous.top_scenario != scenario
+    )
+    if not is_new_event:
+        return None
+
+    risk_score = float(prediction["risk_score"])
+    confidence = float(prediction["top_scenario_confidence"])
+    summary = AI_ALERT_MESSAGES.get(scenario, f"AI phát hiện kịch bản {scenario}")
+    return models.Alert(
+        device_id=device_id,
+        level="critical" if risk_score >= 90 else "warning",
+        message=f"{summary}. Risk {risk_score:.1f}%, confidence {confidence:.1f}%.",
+    )
 
 
 def mark_stale_devices_offline(db: Session) -> None:
@@ -159,19 +207,37 @@ def get_metric(metric_id: int, db: Session = Depends(get_db)) -> models.Metric:
 )
 def create_metric(payload: schemas.MetricCreate, db: Session = Depends(get_db)) -> models.Metric:
     device = resolve_metric_device(payload, db)
-    alert_payload = payload.model_copy(update={"device_id": device.id, "ip_address": None})
+    previous_prediction = latest_ai_prediction(device.id, db)
     metric = models.Metric(
         device_id=device.id,
         latency_ms=payload.latency_ms,
         packet_loss_percent=payload.packet_loss_percent,
         cpu_percent=payload.cpu_percent,
         memory_percent=payload.memory_percent,
+        traffic_in_mbps=payload.traffic_in_mbps,
+        traffic_out_mbps=payload.traffic_out_mbps,
         bandwidth_mbps=payload.bandwidth_mbps,
     )
     if payload.packet_loss_percent is not None:
         device.status = "offline" if payload.packet_loss_percent == 100 else "online"
     db.add(metric)
-    db.add_all(build_metric_alerts(alert_payload))
+    db.flush()
+    prediction_payload = predict_metric(payload)
+    if prediction_payload is not None:
+        db.add(
+            models.AiPrediction(
+                device_id=device.id,
+                metric_id=metric.id,
+                **prediction_payload,
+            )
+        )
+        alert = create_ai_alert_on_transition(
+            device.id,
+            prediction_payload,
+            previous_prediction,
+        )
+        if alert is not None:
+            db.add(alert)
     db.commit()
     db.refresh(metric)
     return metric
@@ -241,6 +307,34 @@ def delete_alert(alert_id: int, db: Session = Depends(get_db)) -> None:
     alert = get_alert_or_404(alert_id, db)
     db.delete(alert)
     db.commit()
+
+
+@router.get("/ai/status", tags=["AI"])
+def get_ai_status() -> dict[str, object]:
+    return model_status()
+
+
+@router.get(
+    "/ai-predictions",
+    response_model=list[schemas.AiPredictionRead],
+    tags=["AI"],
+)
+def list_ai_predictions(
+    device_id: int | None = None,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+) -> list[models.AiPrediction]:
+    query = select(models.AiPrediction)
+    if device_id is not None:
+        get_device_or_404(device_id, db)
+        query = query.where(models.AiPrediction.device_id == device_id)
+    query = (
+        query.order_by(models.AiPrediction.predicted_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    return list(db.scalars(query))
 
 
 @router.get("/dashboard/summary", response_model=schemas.DashboardSummary, tags=["Dashboard"])

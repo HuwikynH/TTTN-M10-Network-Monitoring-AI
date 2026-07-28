@@ -71,12 +71,17 @@ const realAlertApi = {
   updateStatus: (alertId, status, options = {}) => request(`/alerts/${alertId}`, { ...options, method: "PATCH", body: JSON.stringify({ status }) }),
 };
 
+const realAiApi = {
+  list: ({ deviceId, skip = 0, limit = 20, signal } = {}) => request(`/ai-predictions${queryString({ device_id: deviceId, skip, limit })}`, { signal }),
+  status: (options) => request("/ai/status", options),
+};
+
 export const dashboardApi = USE_MOCK_DATA ? mockDashboardApi : realDashboardApi;
 export const deviceApi = USE_MOCK_DATA ? mockDeviceApi : realDeviceApi;
 export const metricApi = USE_MOCK_DATA ? mockMetricApi : realMetricApi;
 export const alertApi = USE_MOCK_DATA ? mockAlertApi : realAlertApi;
 export const trafficApi = USE_MOCK_DATA ? mockTrafficApi : { getFlowData: async () => null };
-export const aiApi = USE_MOCK_DATA ? mockAiApi : { list: async () => [] };
+export const aiApi = USE_MOCK_DATA ? mockAiApi : realAiApi;
 
 export function resetDemoData() {
   if (USE_MOCK_DATA) resetMockData();

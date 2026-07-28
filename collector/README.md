@@ -67,3 +67,14 @@ Neu backend dung URL khac:
 $env:BACKEND_API_URL="http://localhost:8000/api/v1"
 python collectorH.py
 ```
+
+Chu ky mac dinh nghi 1 giay sau moi lan quet. Co the dieu chinh ma khong sua code:
+
+```powershell
+$env:COLLECTOR_INTERVAL_SECONDS="1"
+$env:TRAFFIC_SAMPLE_DELAY="1"
+python collectorH.py --label normal --scenario baseline --output network_dataset.json
+```
+
+Khong nen ha `TRAFFIC_SAMPLE_DELAY` duoi `0.5` giay vi toc do Mbps se nhieu hon
+va lab ao co the bi tang SNMP timeout.

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Float, ForeignKey, String, Text
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -23,6 +23,9 @@ class Device(Base):
 
     metrics: Mapped[list["Metric"]] = relationship(back_populates="device", cascade="all, delete-orphan")
     alerts: Mapped[list["Alert"]] = relationship(back_populates="device", cascade="all, delete-orphan")
+    predictions: Mapped[list["AiPrediction"]] = relationship(
+        back_populates="device", cascade="all, delete-orphan"
+    )
 
 
 class Metric(Base):
@@ -34,6 +37,8 @@ class Metric(Base):
     packet_loss_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
     cpu_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
     memory_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    traffic_in_mbps: Mapped[float | None] = mapped_column(Float, nullable=True)
+    traffic_out_mbps: Mapped[float | None] = mapped_column(Float, nullable=True)
     bandwidth_mbps: Mapped[float | None] = mapped_column(Float, nullable=True)
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
 
@@ -51,3 +56,25 @@ class Alert(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
 
     device: Mapped[Device] = relationship(back_populates="alerts")
+
+
+class AiPrediction(Base):
+    __tablename__ = "ai_predictions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    device_id: Mapped[int] = mapped_column(
+        ForeignKey("devices.id", ondelete="CASCADE"), index=True
+    )
+    metric_id: Mapped[int] = mapped_column(
+        ForeignKey("metrics.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    status: Mapped[str] = mapped_column(String(20))
+    risk_score: Mapped[float] = mapped_column(Float)
+    top_scenario: Mapped[str] = mapped_column(String(30))
+    top_scenario_confidence: Mapped[float] = mapped_column(Float)
+    scenario_probabilities: Mapped[dict[str, float]] = mapped_column(JSON)
+    predicted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, index=True
+    )
+
+    device: Mapped[Device] = relationship(back_populates="predictions")
