@@ -15,6 +15,13 @@ RAW_SNMP_DEBUG = False
 PRINT_DEVICE_SUMMARY = True
 VERBOSE_PROGRESS = False
 DEMO_NORMALIZE_CPU = False
+
+# Cach chuan hoa cac thong so duong:
+# - "minimum_one": chi doi 0 < gia tri < 1 thanh 1.0 (khuyen nghi)
+# - "all_one": moi gia tri > 0 deu thanh 1.0 (se lam mat du lieu AI)
+# - "off": giu nguyen gia tri SNMP
+POSITIVE_METRIC_MODE = "minimum_one"
+
 POST_TO_BACKEND = True
 BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://localhost:8000/api/v1").rstrip("/")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -74,8 +81,8 @@ OIDS = {
     }
 }
 
-INTERVAL_SECONDS = 2
-TRAFFIC_SAMPLE_DELAY = 1  # số giây chờ giữa 2 lần đo octet để tính Mbps
+INTERVAL_SECONDS = max(0.5, float(os.getenv("COLLECTOR_INTERVAL_SECONDS", "1")))
+TRAFFIC_SAMPLE_DELAY = max(0.5, float(os.getenv("TRAFFIC_SAMPLE_DELAY", "1")))
 
 # Bật để in ra raw response từng OID -> giúp xác định OID sai hay thiết bị rớt gói
 DEBUG = RAW_SNMP_DEBUG
@@ -97,6 +104,19 @@ def safe_float(value, default=0.0):
         return float(s)
     except (ValueError, TypeError):
         return default
+
+
+def normalize_positive_metric(value):
+    """Chuan hoa metric duong theo POSITIVE_METRIC_MODE."""
+    value = safe_float(value)
+
+    if POSITIVE_METRIC_MODE == "all_one":
+        return 1.0 if value > 0 else 0.0
+
+    if POSITIVE_METRIC_MODE == "minimum_one":
+        return 1.0 if 0 < value < 1 else value
+
+    return value
 
 
 def normalize_demo_cpu(device_name, cpu_percent):
@@ -149,6 +169,8 @@ async def post_metric_to_backend(record):
         "packet_loss_percent": record["packet_loss_percent"],
         "cpu_percent": record["cpu_percent"],
         "memory_percent": record["memory_percent"],
+        "traffic_in_mbps": record["traffic_in_mbps"],
+        "traffic_out_mbps": record["traffic_out_mbps"],
         "bandwidth_mbps": round(record["traffic_in_mbps"] + record["traffic_out_mbps"], 2),
     }
 
@@ -418,6 +440,14 @@ async def collect_device(dev, traffic_t0, timestamp):
 
         traffic_in_mbps = round(max(0, (in_bytes_t1 - traffic_t0[ip]['in']) * 8 / time_delta / 1000000), 2)
         traffic_out_mbps = round(max(0, (out_bytes_t1 - traffic_t0[ip]['out']) * 8 / time_delta / 1000000), 2)
+
+        # Chuan hoa 6 feature truoc khi luu JSON va gui len Backend.
+        cpu_percent = normalize_positive_metric(cpu_percent)
+        mem_percent = normalize_positive_metric(mem_percent)
+        traffic_in_mbps = normalize_positive_metric(traffic_in_mbps)
+        traffic_out_mbps = normalize_positive_metric(traffic_out_mbps)
+        latency = normalize_positive_metric(latency)
+        pkt_loss = normalize_positive_metric(pkt_loss)
 
         record = {
             "lab_source": "huynh_lab",

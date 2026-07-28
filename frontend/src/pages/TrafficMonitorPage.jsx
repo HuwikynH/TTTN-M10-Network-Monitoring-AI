@@ -160,18 +160,17 @@ export default function TrafficMonitorPage() {
 
   const renderOverview = () => {
     if (polling.isInitialLoading && !summary) return <LoadingState />;
-    if (noInitialData) return <EmptyState title="Chưa thể tải dữ liệu Overview" description="Backend đang mất kết nối. Dashboard sẽ tự phục hồi khi dịch vụ hoạt động lại." />;
+    if (noInitialData) return <EmptyState title="Chưa thể tải dữ liệu tổng quan" description="Backend đang mất kết nối. Trang sẽ tự phục hồi khi dịch vụ hoạt động lại." />;
     if (!devices.length) return <EmptyState title="Chưa có thiết bị để giám sát" description="Thêm thiết bị để bắt đầu hiển thị dashboard lưu lượng." action={<Link className="button button--primary" to="/devices">Quản lý thiết bị</Link>} />;
     return (
       <div className="traffic-tab-content">
         {widgets.summary && <section className="kpi-grid kpi-grid--traffic-summary">
-          {[["Tổng thiết bị", summary?.total_devices, "neutral"], ["Online", summary?.online_devices, "success"], ["Offline", summary?.offline_devices, "critical"], ["Unknown", summary?.unknown_devices, "muted"], ["Open alerts", summary?.open_alerts, "warning"], ["Critical alerts", summary?.critical_alerts, "critical"], ["Total metrics", summary?.total_metrics, "info"]].map(([label, value, tone]) => <article className={"kpi-card kpi-card--" + tone} key={label}><span>{label}</span><strong>{value ?? "—"}</strong></article>)}
-          <article className="kpi-card kpi-card--wide"><span>Last metric time</span><strong className="kpi-card__date">{formatDateTime(summary?.last_metric_at)}</strong></article>
+          {[["Thiết bị hoạt động", `${summary?.online_devices ?? 0}/${summary?.total_devices ?? 0}`, summary?.offline_devices ? "warning" : "success"], ["Mất kết nối", summary?.offline_devices, "critical"], ["Cảnh báo đang mở", summary?.open_alerts, "warning"], ["Cảnh báo nghiêm trọng", summary?.critical_alerts, "critical"]].map(([label, value, tone]) => <article className={"kpi-card kpi-card--" + tone} key={label}><span>{label}</span><strong>{value ?? "—"}</strong></article>)}
         </section>}
         {widgets.heatmap && <DeviceHealthHeatmap devices={devices} alerts={alerts} />}
         {widgets.bandwidth && <div className="overview-bandwidth-widget">{deviceControls}<MetricChart title="Bandwidth báo cáo" description={"Băng thông cấp thiết bị • " + (selectedDevice?.name || "Chưa chọn thiết bị")} data={chartData} lines={[{ dataKey: "bandwidth_mbps", name: "Bandwidth báo cáo", color: "var(--chart-green)" }]} unit="Mbps" /></div>}
         <div className="monitor-bottom-grid">
-          {widgets.alarms && <section className="panel"><div className="panel-heading"><div><p className="eyebrow">Luồng sự kiện</p><h2>Cảnh báo gần đây</h2></div><button className="text-button" type="button" onClick={() => setActiveTab("alarms")}>Mở Alarms</button></div><RecentAlarms alerts={alerts} names={names} /></section>}
+          {widgets.alarms && <section className="panel"><div className="panel-heading"><div><p className="eyebrow">Luồng sự kiện</p><h2>Cảnh báo gần đây</h2></div><button className="text-button" type="button" onClick={() => setActiveTab("alarms")}>Mở cảnh báo</button></div><RecentAlarms alerts={alerts} names={names} /></section>}
           {widgets.abnormal && <section className="panel"><div className="panel-heading"><div><p className="eyebrow">Ưu tiên xử lý</p><h2>Thiết bị bất thường</h2></div></div><AbnormalDevices devices={abnormalDevices} /></section>}
         </div>
         {!Object.values(widgets).some(Boolean) && <section className="panel"><EmptyState title="Dashboard đang ẩn toàn bộ widget" description="Mở Tùy chỉnh Dashboard để bật lại các khối thông tin." action={<button className="button button--primary" type="button" onClick={() => setCustomizing(true)}>Tùy chỉnh Dashboard</button>} /></section>}
@@ -217,7 +216,7 @@ export default function TrafficMonitorPage() {
 
   return (
     <div className="page traffic-monitor-page">
-      <PageHeader eyebrow="Cập nhật gần thời gian thực" title="Giám sát lưu lượng mạng" description="Theo dõi trạng thái, băng thông và cảnh báo thiết bị gần thời gian thực bằng REST polling." actions={<div className="page-header-action-group">{USE_MOCK_DATA && <DemoDataBadge />}<button className="button button--secondary" type="button" onClick={() => setCustomizing(true)}>Tùy chỉnh Dashboard</button></div>} />
+      <PageHeader eyebrow="Theo dõi trực tiếp" title="Giám sát thiết bị" description="Theo dõi sức khỏe, chỉ số và cảnh báo của từng thiết bị trong một luồng làm việc." actions={<div className="page-header-action-group">{USE_MOCK_DATA && <DemoDataBadge />}<button className="button button--secondary" type="button" onClick={() => setCustomizing(true)}>Tùy chỉnh hiển thị</button></div>} />
       <LiveConnectionBadge status={liveStatus} lastUpdated={polling.lastSuccessAt} intervalMs={intervalMs} onToggle={polling.togglePaused} onRefresh={polling.refresh} refreshing={polling.isRefreshing} />
       {(polling.error || actionError) && <ErrorBanner message={actionError || polling.error.message} onRetry={polling.refresh} />}
       <TrafficTabs activeTab={activeTab} onChange={setActiveTab} />

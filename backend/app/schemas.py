@@ -62,6 +62,8 @@ class MetricCreate(BaseModel):
     packet_loss_percent: float | None = Field(default=None, ge=0, le=100)
     cpu_percent: float | None = Field(default=None, ge=0, le=100)
     memory_percent: float | None = Field(default=None, ge=0, le=100)
+    traffic_in_mbps: float | None = Field(default=None, ge=0)
+    traffic_out_mbps: float | None = Field(default=None, ge=0)
     bandwidth_mbps: float | None = Field(default=None, ge=0)
 
     @field_validator("ip_address")
@@ -86,6 +88,8 @@ class MetricCreate(BaseModel):
             self.packet_loss_percent,
             self.cpu_percent,
             self.memory_percent,
+            self.traffic_in_mbps,
+            self.traffic_out_mbps,
             self.bandwidth_mbps,
         )
         if all(value is None for value in measurements):
@@ -100,6 +104,8 @@ class MetricRead(ORMModel):
     packet_loss_percent: float | None
     cpu_percent: float | None
     memory_percent: float | None
+    traffic_in_mbps: float | None
+    traffic_out_mbps: float | None
     bandwidth_mbps: float | None
     collected_at: datetime
 
@@ -121,6 +127,18 @@ class AlertRead(ORMModel):
     message: str
     status: str
     created_at: datetime
+
+
+class AiPredictionRead(ORMModel):
+    id: int
+    device_id: int
+    metric_id: int
+    status: str
+    risk_score: float
+    top_scenario: str
+    top_scenario_confidence: float
+    scenario_probabilities: dict[str, float]
+    predicted_at: datetime
 
 
 class DashboardSummary(BaseModel):

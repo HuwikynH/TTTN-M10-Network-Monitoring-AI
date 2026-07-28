@@ -8,7 +8,7 @@ import LoadingState from "../components/LoadingState";
 import PageHeader from "../components/PageHeader";
 import StatusBadge from "../components/StatusBadge";
 import useAutoRefresh, { getRefreshInterval } from "../hooks/useAutoRefresh";
-import { deviceNameMap, formatDateTime, isStale } from "../utils";
+import { activeAlerts, deviceNameMap, formatDateTime, formatRelativeTime, highestAlertLevel, isStale } from "../utils";
 
 export default function DashboardPage() {
   const [summary, setSummary] = useState(null);
@@ -17,7 +17,7 @@ export default function DashboardPage() {
   const [summaryFallback, setSummaryFallback] = useState(false);
   const intervalMs = getRefreshInterval();
   const polling = useAutoRefresh(async (signal) => {
-    const [deviceData, alertData] = await Promise.all([deviceApi.list({ signal }), alertApi.list({ limit: 8, signal })]);
+    const [deviceData, alertData] = await Promise.all([deviceApi.list({ signal }), alertApi.list({ limit: 100, signal })]);
     let summaryData;
     let fallback = false;
     try { summaryData = await dashboardApi.getSummary({ signal }); }
@@ -42,15 +42,27 @@ export default function DashboardPage() {
   }, { intervalMs });
   const names = useMemo(() => deviceNameMap(devices), [devices]);
   const cards = summary ? [
-    ["Tổng thiết bị", summary.total_devices, "neutral"],
-    ["Online", summary.online_devices, "success"],
-    ["Offline", summary.offline_devices, "critical"],
-    ["Chưa xác định", summary.unknown_devices, "muted"],
-    ["Cảnh báo đang mở", summary.open_alerts, "warning"],
-    ["Cảnh báo Critical", summary.critical_alerts, "critical"],
-    ["Tổng số metrics", summary.total_metrics ?? "—", "info"],
+    ["Thiết bị hoạt động", `${summary.online_devices}/${summary.total_devices}`, summary.offline_devices ? "warning" : "success"],
+    ["Thiết bị mất kết nối", summary.offline_devices, summary.offline_devices ? "critical" : "neutral"],
+    ["Cảnh báo đang mở", summary.open_alerts, summary.open_alerts ? "warning" : "neutral"],
+    ["Cảnh báo nghiêm trọng", summary.critical_alerts, summary.critical_alerts ? "critical" : "neutral"],
   ] : [];
   const dataStatus = polling.error ? "disconnected" : isStale(summary?.last_metric_at, intervalMs) ? "stale" : "live";
+  const relevantAlerts = useMemo(() => activeAlerts(alerts), [alerts]);
+  const priorityDevices = useMemo(() => devices.map((device) => {
+    const deviceAlerts = relevantAlerts.filter((alert) => alert.device_id === device.id);
+    const latestAlert = [...deviceAlerts].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+    return {
+      ...device,
+      alertCount: deviceAlerts.length,
+      highestLevel: highestAlertLevel(deviceAlerts),
+      latestAlert,
+    };
+  }).filter((device) => device.status !== "online" || device.alertCount).sort((a, b) => {
+    const rank = { critical: 3, warning: 2, info: 1 };
+    const levelDifference = (rank[b.highestLevel] || 0) - (rank[a.highestLevel] || 0);
+    return levelDifference || b.alertCount - a.alertCount;
+  }).slice(0, 5), [devices, relevantAlerts]);
 
   return (
     <div className="page">
@@ -69,6 +81,25 @@ export default function DashboardPage() {
           <section className="kpi-grid kpi-grid--dashboard" aria-label="Chỉ số tổng quan">
             {cards.map(([label, value, tone]) => <article className={"kpi-card kpi-card--" + tone} key={label}><span>{label}</span><strong>{value}</strong></article>)}
           </section>
+          <section className="panel priority-panel">
+            <div className="panel-heading">
+              <div><p className="eyebrow">Ưu tiên xử lý</p><h2>Thiết bị cần chú ý</h2><p>Sắp xếp theo mức độ cảnh báo và số sự kiện đang hoạt động.</p></div>
+              <Link to="/alerts">Mở trung tâm cảnh báo</Link>
+            </div>
+            {!priorityDevices.length ? <EmptyState title="Hệ thống đang ổn định" description="Không có thiết bị offline hoặc cảnh báo đang hoạt động." /> : (
+              <div className="priority-list">
+                {priorityDevices.map((device) => (
+                  <Link className="priority-row" key={device.id} to={"/devices/" + device.id}>
+                    <span className={"priority-indicator priority-indicator--" + (device.highestLevel || device.status)} />
+                    <div className="priority-device"><strong>{device.name}</strong><span className="mono">{device.ip_address}</span></div>
+                    <div className="priority-cause"><strong>{device.latestAlert?.message || "Thiết bị không phản hồi"}</strong><span>{device.alertCount ? `${device.alertCount} cảnh báo đang hoạt động` : "Mất kết nối"}</span></div>
+                    <StatusBadge status={device.highestLevel || device.status} />
+                    <span className="priority-time">{formatRelativeTime(device.latestAlert?.created_at || device.updated_at)}</span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
           <div className="dashboard-columns">
             <section className="panel">
               <div className="panel-heading"><div><p className="eyebrow">Hạ tầng</p><h2>Thiết bị gần đây</h2></div><Link to="/devices">Xem tất cả</Link></div>
@@ -79,7 +110,7 @@ export default function DashboardPage() {
             <section className="panel">
               <div className="panel-heading"><div><p className="eyebrow">Sự kiện</p><h2>Cảnh báo mới nhất</h2></div><Link to="/alerts">Xem tất cả</Link></div>
               {!alerts.length ? <EmptyState title="Không có cảnh báo" description="Hệ thống chưa ghi nhận cảnh báo nào." /> : (
-                <div className="alert-list">{alerts.slice(0, 6).map((alert) => <article className="alert-row" key={alert.id}><span className={"severity-marker severity-marker--" + alert.level} /><div><strong>{names.get(alert.device_id) || "Thiết bị #" + alert.device_id}</strong><p>{alert.message}</p><time>{formatDateTime(alert.created_at)}</time></div><StatusBadge status={alert.status} /></article>)}</div>
+                <div className="alert-list">{alerts.slice(0, 6).map((alert) => <Link className="alert-row alert-row--link" to={"/devices/" + alert.device_id} key={alert.id}><span className={"severity-marker severity-marker--" + alert.level} /><div><strong>{names.get(alert.device_id) || "Thiết bị #" + alert.device_id}</strong><p>{alert.message}</p><time>{formatDateTime(alert.created_at)}</time></div><StatusBadge status={alert.status} /></Link>)}</div>
               )}
             </section>
           </div>

@@ -6,7 +6,7 @@ import DemoDataBadge from "./DemoDataBadge";
 
 const navigation = [
   { to: "/", label: "Tổng quan", end: true, icon: "grid" },
-  { to: "/traffic", label: "Giám sát lưu lượng", icon: "pulse" },
+  { to: "/traffic", label: "Giám sát trực tiếp", icon: "pulse" },
   { to: "/devices", label: "Thiết bị", icon: "server" },
   { to: "/alerts", label: "Cảnh báo", icon: "bell" },
 ];
@@ -50,7 +50,7 @@ export default function Layout() {
       <div className="app-content">
         <header className="topbar">
           <button className="icon-button mobile-menu-button" type="button" aria-label="Mở menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}><span /><span /><span /></button>
-          <div className="topbar-context"><span className="topbar-dot" />Hệ thống giám sát đang sẵn sàng</div>
+          <div className="topbar-context"><span className="topbar-dot" />Trung tâm giám sát mạng</div>
           <div className="topbar-actions">
             {USE_MOCK_DATA && <DemoDataBadge compact />}
             {USE_MOCK_DATA && <button className="demo-reset-button" type="button" onClick={handleResetDemo} title="Xóa thay đổi cục bộ và nạp lại bộ dữ liệu demo ban đầu">Đặt lại demo</button>}
