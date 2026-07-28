@@ -1,12 +1,7 @@
 const TABS = [
-  ["overview", "Overview"],
-  ["traffic", "Traffic"],
-  ["application", "Application"],
-  ["source", "Source"],
-  ["destination", "Destination"],
-  ["conversation", "Conversation"],
-  ["interface", "Interface"],
-  ["alarms", "Alarms"],
+  ["overview", "Tổng quan"],
+  ["traffic", "Chỉ số thiết bị"],
+  ["alarms", "Cảnh báo"],
 ];
 
 export default function TrafficTabs({ activeTab, onChange }) {

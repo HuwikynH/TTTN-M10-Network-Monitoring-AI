@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import router
 from app.config import settings
-from app.database import Base, engine
+from app.database import Base, engine, ensure_schema_compatibility
 from app.database import get_db
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
+    ensure_schema_compatibility()
     yield
 
 
