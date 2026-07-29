@@ -33,6 +33,7 @@ dataset/generated/*
 collector/network_dataset.json
 collector/train/
 *.joblib
+!ai/models/scenario_random_forest.joblib
 *_metrics.json
 *_report.md
 sample_ai_prediction_output.json
