@@ -1,10 +1,8 @@
 # Runtime model
 
-Place the trained artifact at:
+`scenario_random_forest.joblib` là model Random Forest đa lớp được backend tải
+mặc định. Artifact hiện tại được retrain ngày 29/07/2026 và dùng
+`scikit-learn==1.9.0`.
 
-```text
-ai/models/scenario_random_forest.joblib
-```
-
-The artifact is intentionally ignored by Git. Override its location with
-`AI_MODEL_PATH` when deploying the backend.
+Có thể thay đường dẫn model khi triển khai bằng biến môi trường
+`AI_MODEL_PATH`.

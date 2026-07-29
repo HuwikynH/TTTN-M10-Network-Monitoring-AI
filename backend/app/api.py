@@ -1,6 +1,13 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Query,
+    status,
+)
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -9,6 +16,12 @@ from app import models, schemas
 from app.ai_service import model_status, predict_metric
 from app.config import settings
 from app.database import get_db
+from app.telegram_service import (
+    notify_ai_alert,
+    notify_ai_recovery,
+    send_test_notification,
+    telegram_status,
+)
 
 router = APIRouter(prefix="/api/v1")
 
@@ -43,22 +56,65 @@ def create_ai_alert_on_transition(
         return None
 
     scenario = str(prediction["top_scenario"])
+    risk_score = float(prediction["risk_score"])
+    level = "critical" if risk_score >= 90 else "warning"
     is_new_event = (
         previous is None
         or previous.status != "abnormal"
         or previous.top_scenario != scenario
     )
-    if not is_new_event:
+    is_critical_escalation = (
+        previous is not None
+        and previous.status == "abnormal"
+        and previous.top_scenario == scenario
+        and float(previous.risk_score) < 90
+        and level == "critical"
+    )
+    if not is_new_event and not is_critical_escalation:
         return None
 
-    risk_score = float(prediction["risk_score"])
     confidence = float(prediction["top_scenario_confidence"])
     summary = AI_ALERT_MESSAGES.get(scenario, f"AI phát hiện kịch bản {scenario}")
     return models.Alert(
         device_id=device_id,
-        level="critical" if risk_score >= 90 else "warning",
+        level=level,
         message=f"{summary}. Risk {risk_score:.1f}%, confidence {confidence:.1f}%.",
     )
+
+
+def is_ai_recovery(
+    prediction: dict[str, object],
+    previous: models.AiPrediction | None,
+) -> bool:
+    return bool(
+        prediction["status"] == "normal"
+        and previous is not None
+        and previous.status == "abnormal"
+    )
+
+
+def build_telegram_event(
+    device: models.Device,
+    metric: models.Metric,
+    prediction: dict[str, object],
+    *,
+    level: str | None = None,
+) -> dict[str, object]:
+    return {
+        "device_name": device.name,
+        "ip_address": device.ip_address,
+        "level": level,
+        "risk_score": prediction["risk_score"],
+        "top_scenario": prediction["top_scenario"],
+        "top_scenario_confidence": prediction["top_scenario_confidence"],
+        "cpu_percent": metric.cpu_percent,
+        "memory_percent": metric.memory_percent,
+        "traffic_in_mbps": metric.traffic_in_mbps,
+        "traffic_out_mbps": metric.traffic_out_mbps,
+        "latency_ms": metric.latency_ms,
+        "packet_loss_percent": metric.packet_loss_percent,
+        "collected_at": metric.collected_at,
+    }
 
 
 def mark_stale_devices_offline(db: Session) -> None:
@@ -205,9 +261,15 @@ def get_metric(metric_id: int, db: Session = Depends(get_db)) -> models.Metric:
 @router.post(
     "/metrics", response_model=schemas.MetricRead, status_code=status.HTTP_201_CREATED, tags=["Metrics"]
 )
-def create_metric(payload: schemas.MetricCreate, db: Session = Depends(get_db)) -> models.Metric:
+def create_metric(
+    payload: schemas.MetricCreate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+) -> models.Metric:
     device = resolve_metric_device(payload, db)
     previous_prediction = latest_ai_prediction(device.id, db)
+    telegram_alert_event: dict[str, object] | None = None
+    telegram_recovery_event: dict[str, object] | None = None
     metric = models.Metric(
         device_id=device.id,
         latency_ms=payload.latency_ms,
@@ -238,8 +300,31 @@ def create_metric(payload: schemas.MetricCreate, db: Session = Depends(get_db)) 
         )
         if alert is not None:
             db.add(alert)
+            db.flush()
+            telegram_alert_event = build_telegram_event(
+                device,
+                metric,
+                prediction_payload,
+                level=alert.level,
+            )
+        elif is_ai_recovery(prediction_payload, previous_prediction):
+            telegram_recovery_event = build_telegram_event(
+                device,
+                metric,
+                prediction_payload,
+            )
     db.commit()
     db.refresh(metric)
+    if telegram_alert_event is not None:
+        background_tasks.add_task(
+            notify_ai_alert,
+            telegram_alert_event,
+        )
+    if telegram_recovery_event is not None:
+        background_tasks.add_task(
+            notify_ai_recovery,
+            telegram_recovery_event,
+        )
     return metric
 
 
@@ -312,6 +397,27 @@ def delete_alert(alert_id: int, db: Session = Depends(get_db)) -> None:
 @router.get("/ai/status", tags=["AI"])
 def get_ai_status() -> dict[str, object]:
     return model_status()
+
+
+@router.get("/notifications/telegram/status", tags=["Notifications"])
+def get_telegram_status() -> dict[str, bool]:
+    return telegram_status()
+
+
+@router.post("/notifications/telegram/test", tags=["Notifications"])
+def test_telegram_notification() -> dict[str, str]:
+    result = send_test_notification()
+    if result.status in {"disabled", "not_configured"}:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=result.detail,
+        )
+    if not result.sent:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=result.detail,
+        )
+    return result.as_dict()
 
 
 @router.get(

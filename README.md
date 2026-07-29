@@ -10,14 +10,16 @@ Hệ thống giám sát thiết bị mạng, thu thập chỉ số vận hành, 
 | Đinh Hoàng Trọng Khôi | Frontend | Dashboard, Devices, Alerts, biểu đồ |
 | Trần Nguyễn Minh Trí | Collector, AI | Thu thập metrics, dataset, mô hình bất thường |
 
-## Kiến trúc Sprint 1
+## Kiến trúc hệ thống
 
 ```text
-Collector ──HTTP──> FastAPI ──SQLAlchemy──> SQLite/PostgreSQL
-                       │
-React Dashboard ──HTTP─┘
-                       │
-                  AI service (Sprint 2)
+Thiết bị EVE-NG ──SNMP/ICMP──> CollectorH ──HTTP──> FastAPI
+                                                        │
+                                      Random Forest predict_proba
+                                                        │
+                                  SQLite/PostgreSQL + AI prediction + alert
+                                                        │
+                                      React Dashboard + Telegram Bot
 ```
 
 ## Cấu trúc repository
@@ -25,8 +27,8 @@ React Dashboard ──HTTP─┘
 ```text
 backend/      FastAPI, database, REST API
 frontend/     React + Vite dashboard
-collector/    Chương trình thu thập latency/packet loss
-ai/           Mã nguồn và tài liệu mô hình AI
+collector/    Thu thập CPU, RAM, traffic, latency và packet loss
+ai/           Model Random Forest và tài liệu AI
 dataset/      Dữ liệu sinh ra hoặc dữ liệu tham khảo
 docs/         Kiến trúc, hợp đồng API, kế hoạch Sprint
 report/       Tư liệu và ảnh cho BCĐK
@@ -82,7 +84,18 @@ Mỗi thành phần có file cấu hình mẫu riêng: `backend/.env.example`,
 `frontend/.env.example` và `collector/.env.example`. Chỉ sao chép thành `.env`
 khi cần đổi cấu hình mặc định; không commit file `.env` thật lên GitHub.
 
-## API Sprint 1
+## AI và cảnh báo Telegram
+
+Backend tải model tại `ai/models/scenario_random_forest.joblib`. Với mỗi metric
+đủ sáu feature, backend lưu dự đoán gồm trạng thái, risk score, top scenario và
+xác suất của sáu kịch bản.
+
+Telegram gửi thông báo khi thiết bị chuyển sang bất thường, đổi top scenario,
+tăng từ warning lên critical hoặc phục hồi về bình thường. Token và chat ID chỉ
+được lưu trong `backend/.env`. Xem hướng dẫn tại
+[backend/TELEGRAM_SETUP.md](backend/TELEGRAM_SETUP.md).
+
+## API chính
 
 | Method | Endpoint | Mô tả |
 |---|---|---|
@@ -93,6 +106,10 @@ khi cần đổi cấu hình mặc định; không commit file `.env` thật lê
 | GET/POST | `/api/v1/alerts` | Đọc/tạo cảnh báo |
 | PATCH | `/api/v1/alerts/{id}` | Xác nhận/giải quyết cảnh báo |
 | GET | `/api/v1/dashboard/summary` | Thống kê tổng quan Dashboard |
+| GET | `/api/v1/ai/status` | Trạng thái model AI |
+| GET | `/api/v1/ai-predictions` | Danh sách dự đoán AI |
+| GET | `/api/v1/notifications/telegram/status` | Trạng thái Telegram |
+| POST | `/api/v1/notifications/telegram/test` | Gửi thông báo Telegram thử |
 
 Chi tiết request/response nằm trong Swagger và [docs/API_CONTRACT.md](docs/API_CONTRACT.md).
 
@@ -109,10 +126,7 @@ feature/ai-<task>
 
 Sau khi hoàn thành: push branch, tạo Pull Request vào `develop`, review rồi mới merge.
 
-## Mục tiêu BCĐK1 (13–14/07/2026)
+## Kết quả model hiện tại
 
-- Backend và database chạy được.
-- CRUD thiết bị hoạt động trên Swagger.
-- Frontend hiển thị danh sách thiết bị.
-- Collector gửi được latency/packet loss.
-- Có sơ đồ kiến trúc, ảnh Swagger, database và dashboard cho báo cáo.
+Model được retrain ngày 29/07/2026 và đánh giá trên 1.340 record kiểm thử độc
+lập: Accuracy 91,64%, Balanced Accuracy 91,15% và Macro F1-score 90,94%.

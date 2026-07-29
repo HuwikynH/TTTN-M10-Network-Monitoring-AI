@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 os.environ["DATABASE_URL"] = "sqlite://"
+os.environ["TELEGRAM_ENABLED"] = "false"
 
 from app.database import Base, get_db
 from app.main import app
@@ -264,6 +265,104 @@ def test_ai_alert_is_created_on_each_new_abnormal_event(
     ).json()
     assert len(alerts) == 2
     assert all(alert["level"] == "critical" for alert in alerts)
+
+
+def test_telegram_follows_ai_transitions_and_critical_escalation(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    device = create_device(client)
+    warning = {
+        "status": "abnormal",
+        "risk_score": 82.0,
+        "top_scenario": "high_latency",
+        "top_scenario_confidence": 76.0,
+        "scenario_probabilities": {
+            "baseline": 18.0,
+            "stress_cpu": 1.0,
+            "high_traffic": 2.0,
+            "high_latency": 76.0,
+            "packet_loss": 2.0,
+            "attack_test": 1.0,
+        },
+    }
+    critical = {
+        **warning,
+        "risk_score": 94.0,
+        "top_scenario_confidence": 88.0,
+    }
+    normal = {
+        "status": "normal",
+        "risk_score": 7.0,
+        "top_scenario": "baseline",
+        "top_scenario_confidence": 93.0,
+        "scenario_probabilities": {
+            "baseline": 93.0,
+            "stress_cpu": 1.0,
+            "high_traffic": 2.0,
+            "high_latency": 1.0,
+            "packet_loss": 2.0,
+            "attack_test": 1.0,
+        },
+    }
+    predictions = iter([warning, warning, critical, normal, normal])
+    sent_alerts: list[dict] = []
+    sent_recoveries: list[dict] = []
+    monkeypatch.setattr("app.api.predict_metric", lambda _metric: next(predictions))
+    monkeypatch.setattr(
+        "app.api.notify_ai_alert",
+        lambda payload: sent_alerts.append(dict(payload)),
+    )
+    monkeypatch.setattr(
+        "app.api.notify_ai_recovery",
+        lambda payload: sent_recoveries.append(dict(payload)),
+    )
+
+    payload = {
+        "device_id": device["id"],
+        "cpu_percent": 20,
+        "memory_percent": 30,
+        "traffic_in_mbps": 1,
+        "traffic_out_mbps": 1,
+        "latency_ms": 220,
+        "packet_loss_percent": 0,
+    }
+    for _ in range(5):
+        assert client.post("/api/v1/metrics", json=payload).status_code == 201
+
+    alerts = client.get(
+        "/api/v1/alerts", params={"device_id": device["id"]}
+    ).json()
+    assert [alert["level"] for alert in alerts] == ["critical", "warning"]
+    assert [event["level"] for event in sent_alerts] == ["warning", "critical"]
+    assert len(sent_recoveries) == 1
+    assert sent_recoveries[0]["top_scenario"] == "baseline"
+
+
+def test_telegram_status_and_test_endpoints(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.telegram_service import TelegramDeliveryResult
+
+    monkeypatch.setattr(
+        "app.api.telegram_status",
+        lambda: {
+            "enabled": True,
+            "configured": True,
+            "notify_recovery": True,
+            "dashboard_url_configured": False,
+        },
+    )
+    status_response = client.get("/api/v1/notifications/telegram/status")
+    assert status_response.status_code == 200
+    assert status_response.json()["configured"] is True
+
+    monkeypatch.setattr(
+        "app.api.send_test_notification",
+        lambda: TelegramDeliveryResult("sent", "Telegram message sent"),
+    )
+    test_response = client.post("/api/v1/notifications/telegram/test")
+    assert test_response.status_code == 200
+    assert test_response.json()["status"] == "sent"
 
 
 def test_metric_and_alert_delete(client: TestClient) -> None:
