@@ -11,23 +11,67 @@ import urllib.error
 import urllib.request
 from pysnmp.hlapi.asyncio import *
 
-RAW_SNMP_DEBUG = False
-PRINT_DEVICE_SUMMARY = True
-VERBOSE_PROGRESS = False
-DEMO_NORMALIZE_CPU = False
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def load_local_env(path):
+    """Load simple KEY=VALUE entries without adding a Kali dependency."""
+    if not os.path.isfile(path):
+        return
+
+    with open(path, "r", encoding="utf-8") as env_file:
+        for raw_line in env_file:
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+                value = value[1:-1]
+            if key and key.replace("_", "").isalnum():
+                os.environ.setdefault(key, value)
+
+
+def env_bool(name, default=False):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+load_local_env(os.path.join(BASE_DIR, ".env"))
+
+RAW_SNMP_DEBUG = env_bool("RAW_SNMP_DEBUG", False)
+PRINT_DEVICE_SUMMARY = env_bool("PRINT_DEVICE_SUMMARY", True)
+VERBOSE_PROGRESS = env_bool("VERBOSE_PROGRESS", False)
+DEMO_NORMALIZE_CPU = env_bool("DEMO_NORMALIZE_CPU", False)
 
 # Cach chuan hoa cac thong so duong:
 # - "minimum_one": chi doi 0 < gia tri < 1 thanh 1.0 (khuyen nghi)
 # - "all_one": moi gia tri > 0 deu thanh 1.0 (se lam mat du lieu AI)
 # - "off": giu nguyen gia tri SNMP
-POSITIVE_METRIC_MODE = "minimum_one"
+POSITIVE_METRIC_MODE = os.getenv("POSITIVE_METRIC_MODE", "off").strip().lower()
+if POSITIVE_METRIC_MODE not in {"minimum_one", "all_one", "off"}:
+    raise ValueError(
+        "POSITIVE_METRIC_MODE must be minimum_one, all_one, or off"
+    )
 
-POST_TO_BACKEND = True
-BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://localhost:8000/api/v1").rstrip("/")
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATASET_LABEL = "normal"
-DATASET_SCENARIO = "baseline"
-DATASET_OUTPUT = "network_dataset.json"
+POST_TO_BACKEND = env_bool("POST_TO_BACKEND", True)
+BACKEND_API_URL = os.getenv(
+    "BACKEND_API_URL", "http://127.0.0.1:8000/api/v1"
+).rstrip("/")
+BACKEND_TIMEOUT_SECONDS = max(
+    1.0, float(os.getenv("BACKEND_TIMEOUT_SECONDS", "10"))
+)
+LAB_SOURCE = os.getenv("LAB_SOURCE", "huynh_lab").strip() or "huynh_lab"
+DATASET_LABEL = os.getenv("DATASET_LABEL", "normal").strip() or "normal"
+DATASET_SCENARIO = os.getenv("DATASET_SCENARIO", "baseline").strip() or "baseline"
+DATASET_OUTPUT = (
+    os.getenv("DATASET_OUTPUT", "network_dataset.json").strip()
+    or "network_dataset.json"
+)
 
 CPU_DEMO_RANGES = {
     "CORE": (1.0, 2.5),
@@ -89,7 +133,8 @@ DEBUG = RAW_SNMP_DEBUG
 
 # Giới hạn số phiên SNMP chạy đồng thời trên toàn hệ thống. ASAv/IOL trong lab
 # ảo hoá rất dễ rớt gói nếu nhận nhiều SNMP request cùng lúc.
-SNMP_SEMAPHORE = asyncio.Semaphore(4)
+SNMP_CONCURRENCY = max(1, int(os.getenv("SNMP_CONCURRENCY", "4")))
+SNMP_SEMAPHORE = asyncio.Semaphore(SNMP_CONCURRENCY)
 
 
 def safe_float(value, default=0.0):
@@ -142,7 +187,9 @@ def post_json(url, payload):
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=10) as response:
+    with urllib.request.urlopen(
+        request, timeout=BACKEND_TIMEOUT_SECONDS
+    ) as response:
         body = response.read().decode("utf-8")
         return json.loads(body) if body else None
 
@@ -401,7 +448,7 @@ async def collect_device(dev, traffic_t0, timestamp):
 
         if status != "UP":
             record = {
-                "lab_source": "huynh_lab",
+                "lab_source": LAB_SOURCE,
                 "device_name": name,
                 "device_type": device_type,
                 "ip_address": ip,
@@ -450,7 +497,7 @@ async def collect_device(dev, traffic_t0, timestamp):
         pkt_loss = normalize_positive_metric(pkt_loss)
 
         record = {
-            "lab_source": "huynh_lab",
+            "lab_source": LAB_SOURCE,
             "device_name": name,
             "device_type": device_type,
             "ip_address": ip,
