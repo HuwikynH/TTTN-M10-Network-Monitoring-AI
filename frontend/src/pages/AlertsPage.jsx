@@ -8,10 +8,12 @@ import PageHeader from "../components/PageHeader";
 import StatusBadge from "../components/StatusBadge";
 import useAutoRefresh from "../hooks/useAutoRefresh";
 import { deviceNameMap, formatDateTime, formatRelativeTime, groupAlerts } from "../utils";
+import { useAuth } from "../context/AuthContext";
 
 const PAGE_SIZE = 10;
 
 export default function AlertsPage() {
+  const { isAdmin } = useAuth();
   const [alerts, setAlerts] = useState([]);
   const [devices, setDevices] = useState([]);
   const [levelFilter, setLevelFilter] = useState("all");
@@ -103,6 +105,7 @@ export default function AlertsPage() {
             <div className="incident-list">
               {paginated.map((group) => (
                 <article className={"incident-row incident-row--" + group.level} key={group.id}>
+                  <span className="incident-bar" aria-hidden="true" />
                   <div className="incident-main">
                     <div className="incident-title"><Link to={"/devices/" + group.device_id}>{names.get(group.device_id) || "Thiết bị #" + group.device_id}</Link><StatusBadge status={group.level} /><StatusBadge status={group.status} /></div>
                     <strong>{group.category}</strong>
@@ -110,10 +113,10 @@ export default function AlertsPage() {
                     <span>Cập nhật {formatRelativeTime(group.latest.created_at)} · {formatDateTime(group.latest.created_at)}</span>
                   </div>
                   <div className="incident-count"><strong>{group.alerts.length}</strong><span>lần lặp</span></div>
-                  <div className="incident-actions">
+                  {isAdmin && <div className="incident-actions">
                     {group.status === "open" && <button className="button button--secondary" type="button" disabled={updatingId === group.id} onClick={() => updateStatus(group, "acknowledged")}>Xác nhận</button>}
                     {group.status !== "resolved" && <button className="button button--primary" type="button" disabled={updatingId === group.id} onClick={() => updateStatus(group, "resolved")}>Đã xử lý</button>}
-                  </div>
+                  </div>}
                 </article>
               ))}
             </div>

@@ -2,12 +2,12 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { formatDateTime } from "../utils";
 
 const SCENARIOS = [
-  { key: "high_traffic", label: "High traffic", color: "#e52d3d" },
-  { key: "high_latency", label: "High latency", color: "#f97316" },
-  { key: "stress_cpu", label: "Stress CPU", color: "#f2a51a" },
-  { key: "baseline", label: "Baseline", color: "#22a06b" },
-  { key: "packet_loss", label: "Packet loss", color: "#d92c7b" },
-  { key: "attack_test", label: "Attacked", color: "#a40d1d" },
+  { key: "high_traffic", label: "High traffic", color: "var(--chart-scenario-1)" },
+  { key: "high_latency", label: "High latency", color: "var(--chart-scenario-2)" },
+  { key: "stress_cpu", label: "Stress CPU", color: "var(--chart-scenario-3)" },
+  { key: "baseline", label: "Baseline", color: "var(--chart-scenario-4)" },
+  { key: "packet_loss", label: "Packet loss", color: "var(--chart-scenario-5)" },
+  { key: "attack_test", label: "Attacked", color: "var(--chart-scenario-6)" },
 ];
 
 function percent(value) {
