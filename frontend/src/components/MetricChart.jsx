@@ -6,7 +6,7 @@ const timeFormatter = (value) => {
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 };
 
-export default function MetricChart({ title, description, data, lines, unit, domain = [0, "auto"], threshold, height = 260 }) {
+export default function MetricChart({ title, description, data, lines, unit, domain = [0, "auto"], threshold, height = 220 }) {
   if (!data.length) return <section className="chart-panel"><div className="panel-heading"><div><h2>{title}</h2>{description && <p>{description}</p>}</div></div><EmptyState title="Chưa có dữ liệu biểu đồ" description="Biểu đồ sẽ xuất hiện khi thiết bị gửi metric." /></section>;
   return (
     <section className="chart-panel">
